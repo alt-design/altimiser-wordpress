@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches the plugin's version
+        run: grep -Fxq " * Version: ${GITHUB_REF_NAME#v}" altimiser.php
+
+      - name: Build the zip
+        run: git archive --prefix=altimiser/ -o altimiser.zip HEAD altimiser.php src README.md
+
+      - name: Publish the release
+        run: gh release create "$GITHUB_REF_NAME" altimiser.zip --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
