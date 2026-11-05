@@ -120,8 +120,8 @@ class Yoast
      * Term values live in an option, which Yoast's watchers do not listen to, and the
      * term's page is rendered from an indexable they maintain, so without this it goes
      * on printing the old value. Firing edited_term would tell every other plugin the
-     * term had been edited. wp_update_term() would fire it too, and with nobody signed
-     * in it also strips markup from the term's own description.
+     * term had been edited. wp_update_term() would fire it too, and it also runs the
+     * term's own description through wp_filter_kses, whoever is signed in.
      */
     private function rebuildTerm(WP_Term $term): void
     {
