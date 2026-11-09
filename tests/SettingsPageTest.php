@@ -100,12 +100,14 @@ class SettingsPageTest extends WP_UnitTestCase
     {
         update_option(Settings::$option, ['secret' => $this->longSecret]);
         set_transient('altimiser_summary', ['summary' => ['awaiting_review' => 1]], 300);
+        update_option('altimiser_robots_sitemap', 'https://example.org/sitemap.xml');
 
         define('WP_UNINSTALL_PLUGIN', 'altimiser/altimiser.php');
         require dirname(__DIR__).'/uninstall.php';
 
         $this->assertFalse(get_option(Settings::$option));
         $this->assertFalse(get_transient('altimiser_summary'));
+        $this->assertFalse(get_option('altimiser_robots_sitemap'));
     }
 
     public function test_shows_nothing_to_someone_who_cannot_manage_options(): void

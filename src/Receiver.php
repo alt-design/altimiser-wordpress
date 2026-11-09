@@ -179,9 +179,13 @@ class Receiver
     private function appliers(): array
     {
         $content = new ContentResolver();
+        $writer = new ContentWriter();
 
         return [
             $this->yoast === null ? new InactiveSeoPlugin() : new YoastApplier($this->yoast, $content),
+            new AltTextApplier($content, $writer),
+            new LinkApplier($content, new MentionLinker(), $writer),
+            new RobotsApplier(),
         ];
     }
 

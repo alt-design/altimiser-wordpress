@@ -16,6 +16,7 @@
 use AltDesign\Altimiser\ControlPanel;
 use AltDesign\Altimiser\Receiver;
 use AltDesign\Altimiser\ReviewQueuePage;
+use AltDesign\Altimiser\RobotsApplier;
 use AltDesign\Altimiser\Settings;
 use AltDesign\Altimiser\SettingsPage;
 use AltDesign\Altimiser\Updater;
@@ -38,6 +39,7 @@ add_action('rest_api_init', static function (): void {
 
 add_action('add_option_'.Settings::$option, [Settings::class, 'keepOutOfAutoload']);
 add_action('update_option_'.Settings::$option, [Settings::class, 'keepOutOfAutoload']);
+add_filter('robots_txt', [RobotsApplier::class, 'declareSitemap']);
 
 add_action('plugins_loaded', static function (): void {
     if (is_admin()) {
