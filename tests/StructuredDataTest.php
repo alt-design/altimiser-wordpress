@@ -427,6 +427,16 @@ JSON);
         $this->assertSame($before + 1, count($this->printed($listPage)['items']));
     }
 
+    public function test_a_loop_takes_the_first_fifty_posts_of_a_large_type(): void
+    {
+        $listPage = $this->createPost(['post_type' => 'page', 'post_name' => 'blog-index']);
+        self::factory()->post->create_many(55);
+
+        $this->applyBlock($listPage, '{"items": [{{ collection:post }}"{{ title }}"{{ unless last }},{{ /unless }}{{ /collection:post }}]}');
+
+        $this->assertCount(50, $this->printed($listPage)['items']);
+    }
+
     public function test_refuses_a_loop_inside_a_loop(): void
     {
         $listPage = $this->createPost(['post_type' => 'page', 'post_name' => 'nested']);

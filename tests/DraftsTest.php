@@ -142,6 +142,18 @@ class DraftsTest extends ReceiverTestCase
         $this->assertCount(1, get_posts(['post_type' => 'post', 'post_status' => 'any', 'meta_key' => '_altimiser_draft_reference']));
     }
 
+    public function test_leaves_a_draft_an_editor_has_worked_on_alone_and_says_so(): void
+    {
+        $id = (int) $this->sendDraft()->get_data()['id'];
+        wp_update_post(['ID' => $id, 'post_content' => 'Most cost between 30,000 and 60,000 pounds.']);
+
+        $response = $this->sendDraft(['body' => 'Overwritten body.']);
+
+        $this->assertSame('refused', $response->get_data()['status']);
+        $this->assertSame('edited', $response->get_data()['reason']);
+        $this->assertSame('Most cost between 30,000 and 60,000 pounds.', get_post($id)->post_content);
+    }
+
     public function test_leaves_a_published_draft_alone_and_says_so(): void
     {
         $id = (int) $this->sendDraft()->get_data()['id'];

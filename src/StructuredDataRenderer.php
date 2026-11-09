@@ -80,6 +80,10 @@ class StructuredDataRenderer
         }, $template, -1, $count, PREG_UNMATCHED_AS_NULL);
     }
 
+    /**
+     * The block is rendered on every uncached view of the page, so a loop takes the
+     * first 50 posts rather than every one a large post type holds.
+     */
     private function loop(string $handle, string $body, bool &$failed): string
     {
         if (! $this->collections->loopable($handle)) {
@@ -89,9 +93,10 @@ class StructuredDataRenderer
         $posts = get_posts([
             'post_type' => $handle,
             'post_status' => 'publish',
-            'numberposts' => -1,
+            'numberposts' => 50,
             'orderby' => ['menu_order' => 'ASC', 'date' => 'DESC'],
             'no_found_rows' => true,
+            'update_post_term_cache' => false,
         ]);
 
         $rendered = '';

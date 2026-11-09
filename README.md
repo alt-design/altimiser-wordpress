@@ -89,7 +89,7 @@ A missing `robots.txt` is created with no `Disallow` rules and the site's sitema
 
 ### Structured data
 
-The block arrives as a JSON template and is printed in the head of single posts and pages, beside Yoast SEO's own graph. It can use `{{ title }}`, `{{ meta_description }}`, `{{ permalink }}`, `{{ excerpt }}`, `{{ featured_image }}`, `{{ date_published }}`, `{{ date_modified }}`, `{{ author_name }}`, `{{ site_name }}` and `{{ site_url }}`, a text field from an ACF PRO options page as `{{ options-page:field }}`, and one loop over a post type, `{{ collection:handle }}` to `{{ /collection:handle }}`, with `{{ count }}` and `{{ unless last }}` inside it. Values are escaped for JSON when printed, and a password protected post gives no excerpt or description, since the block is printed for everyone.
+The block arrives as a JSON template and is printed in the head of single posts and pages, beside Yoast SEO's own graph. It can use `{{ title }}`, `{{ meta_description }}`, `{{ permalink }}`, `{{ excerpt }}`, `{{ featured_image }}`, `{{ date_published }}`, `{{ date_modified }}`, `{{ author_name }}`, `{{ site_name }}` and `{{ site_url }}`, a text field from an ACF PRO options page as `{{ options-page:field }}`, and one loop over a post type, `{{ collection:handle }}` to `{{ /collection:handle }}`, with `{{ count }}` and `{{ unless last }}` inside it. A loop takes the first 50 posts, by menu order and then newest first, because the block is rendered on every uncached view. Values are escaped for JSON when printed, and a password protected post gives no excerpt or description, since the block is printed for everyone. A post hidden by a membership plugin is still published as far as WordPress is concerned, so on a membership site leave `{{ excerpt }}` and `{{ meta_description }}` out of blocks for members' content.
 
 A block for any post type but pages is kept once, as that type's default, and every post of the type uses it unless it has its own. Later posts of the type are reported as already done, and an existing default is left in place as `default_present`. Pages keep a block each. The `altimiser_structured_data_default_exclusions` filter lists the post types that keep a block per post. A block that does not render to valid JSON for the page prints nothing and is refused as `invalid_markup`.
 
@@ -121,7 +121,7 @@ Each request attempts up to 10 changes within 45 seconds and hands the rest back
 
 ## Drafts
 
-Altimiser can send a new page to `POST /drafts`, and the plugin saves it as a draft for an editor to finish and publish. The Markdown body becomes block markup, with each `[GAP: ...]` left where it is for the editor to fill. The draft goes into the post type Altimiser names, or beside the page it expands, with a slug ending in `-draft`. The meta description goes to Yoast SEO's field where it is active. Sending the same idea again rewrites its draft while it is still a draft or pending review, and once it has been published it is left alone and refused as `already_published`. Drafts need pretty permalinks, because post types are only offered as destinations with an address.
+Altimiser can send a new page to `POST /drafts`, and the plugin saves it as a draft for an editor to finish and publish. The Markdown body becomes block markup, with each `[GAP: ...]` left where it is for the editor to fill. The draft goes into the post type Altimiser names, or beside the page it expands, with a slug ending in `-draft`. The meta description goes to Yoast SEO's field where it is active. Sending the same idea again rewrites its draft while it is still a draft or pending review and nobody has changed its title or body. A draft an editor has worked on is refused as `edited`, and one that has been published as `already_published`. A signed request has no user, so the draft has no author: set one before publishing, or the byline and `{{ author_name }}` stay empty. Drafts need pretty permalinks, because post types are only offered as destinations with an address.
 
 ## Page caches
 
@@ -185,6 +185,8 @@ To publish a release, change `Version` in `altimiser.php` on `main`, then push a
 ## Uninstalling
 
 Deleting the plugin removes its settings and the counts it keeps, on every site of a network. Changes it applied are the site's content by then, and stay, except a sitemap declared in the `robots.txt` WordPress prints and stored structured data, which only the plugin printed. Drafts stay, and keep the reference that ties them to Altimiser.
+
+Deactivating the plugin stops it printing structured data and the sitemap line in WordPress's `robots.txt` as well, though both come back on reactivation. Until then Altimiser's next scan finds them missing again.
 
 ## When the connection fails
 

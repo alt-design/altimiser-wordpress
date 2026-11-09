@@ -3,7 +3,6 @@
 namespace AltDesign\Altimiser;
 
 use InvalidArgumentException;
-use RuntimeException;
 use Throwable;
 use WP_Error;
 use WP_REST_Request;
@@ -230,7 +229,7 @@ class Receiver
 
         try {
             return new WP_REST_Response($posts->store($draft));
-        } catch (RuntimeException $exception) {
+        } catch (Throwable $exception) {
             return new WP_Error('altimiser_write_failed', $exception->getMessage(), ['status' => 500]);
         }
     }

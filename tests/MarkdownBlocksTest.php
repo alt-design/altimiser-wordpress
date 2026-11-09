@@ -14,6 +14,11 @@ class MarkdownBlocksTest extends WP_UnitTestCase
         return "<!-- wp:paragraph -->\n<p>{$html}</p>\n<!-- /wp:paragraph -->";
     }
 
+    public function test_takes_out_the_characters_it_uses_to_hold_markup_in_place(): void
+    {
+        $this->assertSame($this->paragraph('Costs 5 and <a href="http://x">link</a> more.'), $this->convert("Costs \u{E000}5\u{E001} and [link](x) more."));
+    }
+
     public function test_wraps_paragraphs_in_blocks(): void
     {
         $this->assertSame(

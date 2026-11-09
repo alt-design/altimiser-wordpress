@@ -13,11 +13,14 @@ use WP_Post;
  * business's answers and carries its gaps marked in the text, so nothing reaches
  * the site until somebody publishes it. The idea it came from is kept on the post,
  * so sending the same idea again rewrites its draft, but only while the draft is
- * unpublished. Once somebody has published it, it is theirs.
+ * unpublished and nobody has edited it. Once somebody has published or edited it, it
+ * is theirs.
  */
 class DraftPosts
 {
     private string $referenceKey = '_altimiser_draft_reference';
+
+    private string $writtenKey = '_altimiser_draft_written';
 
     public function __construct(
         private ContentResolver $content,
@@ -55,6 +58,10 @@ class DraftPosts
             return $this->refused('already_published', "The draft for this idea was published as \"{$existing->post_title}\", so it is left alone.");
         }
 
+        if ($existing !== null && $this->editedSinceWritten($existing)) {
+            return $this->refused('edited', "Somebody has edited the draft \"{$existing->post_title}\" since it was written, so it was not rewritten over their work.");
+        }
+
         if (! post_type_supports($postType, 'editor')) {
             return $this->refused('no_body_field', "The {$postType} post type has no editor to write the draft into.");
         }
@@ -63,6 +70,7 @@ class DraftPosts
             ? $this->create($draft, $postType, $beside)
             : $this->rewrite($draft, $existing);
 
+        update_post_meta($id, $this->writtenKey, $this->fingerprint($id));
         $this->storeDescription($id, $draft);
 
         return [
@@ -86,6 +94,24 @@ class DraftPosts
         ]);
 
         return $found[0] ?? null;
+    }
+
+    private function editedSinceWritten(WP_Post $post): bool
+    {
+        $written = (string) get_post_meta($post->ID, $this->writtenKey, true);
+
+        return $written !== '' && $written !== $this->fingerprint($post->ID);
+    }
+
+    /**
+     * Taken from the post as saved, so filters that change content on save do not make
+     * every draft look edited.
+     */
+    private function fingerprint(int $postId): string
+    {
+        $post = get_post($postId);
+
+        return $post instanceof WP_Post ? md5("{$post->post_title}\n{$post->post_content}") : '';
     }
 
     private function isUnpublished(WP_Post $post): bool

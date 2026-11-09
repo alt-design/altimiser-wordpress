@@ -148,9 +148,14 @@ class MarkdownBlocks
         $paragraph = [];
     }
 
+    /**
+     * Stashed markup is held in place by private use characters, so any in the text
+     * itself are taken out first.
+     */
     private function inline(string $text): string
     {
         $stash = [];
+        $text = str_replace(["\u{E000}", "\u{E001}"], '', $text);
 
         $withoutMarkers = (string) preg_replace_callback(
             '/\[GAP:[^\]]*\]/',
