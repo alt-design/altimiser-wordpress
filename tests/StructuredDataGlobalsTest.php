@@ -27,7 +27,7 @@ class StructuredDataGlobalsTest extends ReceiverTestCase
         ]);
     }
 
-    public function test_skips_a_block_naming_a_global_when_acf_is_absent(): void
+    public function test_skips_a_block_naming_a_global_without_acf_options_pages(): void
     {
         $pageId = self::factory()->post->create(['post_type' => 'page']);
 
@@ -43,27 +43,9 @@ class StructuredDataGlobalsTest extends ReceiverTestCase
      */
     public function test_renders_a_global_from_an_acf_options_page_escaped_for_json(): void
     {
-        eval(<<<'PHP'
-        function acf_get_options_pages(): array
-        {
-            return ['site-settings' => ['menu_slug' => 'site-settings', 'page_title' => 'Site settings', 'post_id' => 'options']];
-        }
+        require __DIR__.'/fixtures/acf-pro-options-pages.php';
 
-        function acf_get_field_groups(array $filter): array
-        {
-            return [['key' => 'group_contact']];
-        }
-
-        function acf_get_fields(array $group): array
-        {
-            return [['name' => 'telephone', 'label' => 'Telephone', 'type' => 'text']];
-        }
-
-        function get_field(string $name, mixed $postId): string
-        {
-            return 'Call "us" on \\ 020 7946 0000';
-        }
-        PHP);
+        altimiser_test_site_settings(['telephone' => 'Call "us" on \ 020 7946 0000']);
 
         $pageId = self::factory()->post->create(['post_type' => 'page', 'post_status' => 'publish']);
         $applied = $this->applyBlock($pageId, '{"telephone": "{{ site-settings:telephone }}"}');

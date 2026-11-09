@@ -67,8 +67,16 @@ class PostVariables
         return $this->plain($yoast->render($template, $post));
     }
 
+    /**
+     * Empty for a password protected post, whose text is only for those given the
+     * password, while structured data is printed for everyone.
+     */
     private function excerpt(WP_Post $post): string
     {
+        if ($post->post_password !== '') {
+            return '';
+        }
+
         $text = $post->post_excerpt !== ''
             ? $post->post_excerpt
             : wp_trim_words(strip_shortcodes(wp_strip_all_tags($post->post_content)), 55, '');

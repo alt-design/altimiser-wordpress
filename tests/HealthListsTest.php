@@ -78,7 +78,7 @@ class HealthListsTest extends ReceiverTestCase
         $this->assertSame([], $this->health()['collections']);
     }
 
-    public function test_lists_no_globals_where_acf_is_absent(): void
+    public function test_lists_no_globals_without_acf_options_pages(): void
     {
         $this->assertFalse(function_exists('acf_get_options_pages'));
         $this->assertSame([], $this->health()['globals']);
@@ -91,7 +91,14 @@ class HealthListsTest extends ReceiverTestCase
      */
     public function test_lists_single_line_text_fields_from_acf_options_pages(): void
     {
-        $this->defineAcf();
+        require __DIR__.'/fixtures/acf-pro-options-pages.php';
+
+        altimiser_test_site_settings([
+            'telephone' => ' +44 20 7946 0000 ',
+            'address' => "1 High Street\nLondon",
+            'fax' => '',
+            'tagline' => "Two\nlines",
+        ]);
 
         $this->assertSame([
             [
@@ -119,21 +126,6 @@ class HealthListsTest extends ReceiverTestCase
             throw new RuntimeException('ACF is not ready.');
         }
 
-        function acf_get_field_groups(): array
-        {
-            return [];
-        }
-
-        function acf_get_fields(): array
-        {
-            return [];
-        }
-
-        function get_field(): string
-        {
-            return '';
-        }
-
         $response = $this->dispatch($this->signedRequest());
 
         $this->assertSame(200, $response->get_status());
@@ -142,43 +134,6 @@ class HealthListsTest extends ReceiverTestCase
         unlink($errorLog);
     }
 
-    private function defineAcf(): void
-    {
-        eval(<<<'PHP'
-        function acf_get_options_pages(): array
-        {
-            return [
-                'site-settings' => ['menu_slug' => 'site-settings', 'page_title' => 'Site settings', 'post_id' => 'options'],
-                'empty-page' => ['menu_slug' => 'empty-page', 'page_title' => 'Empty', 'post_id' => 'options'],
-            ];
-        }
-
-        function acf_get_field_groups(array $filter): array
-        {
-            return $filter['options_page'] === 'site-settings' ? [['key' => 'group_contact']] : [];
-        }
-
-        function acf_get_fields(array $group): array
-        {
-            return [
-                ['name' => 'telephone', 'label' => 'Telephone', 'type' => 'text'],
-                ['name' => 'address', 'label' => 'Address', 'type' => 'textarea'],
-                ['name' => 'fax', 'label' => 'Fax', 'type' => 'text'],
-                ['name' => 'tagline', 'label' => 'Tagline', 'type' => 'text'],
-            ];
-        }
-
-        function get_field(string $name, mixed $postId): mixed
-        {
-            return [
-                'telephone' => ' +44 20 7946 0000 ',
-                'address' => "1 High Street\nLondon",
-                'fax' => '',
-                'tagline' => "Two\nlines",
-            ][$name] ?? null;
-        }
-        PHP);
-    }
 
     public function test_describes_each_variable_the_renderer_understands(): void
     {

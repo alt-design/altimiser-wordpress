@@ -145,6 +145,21 @@ JSON;
         $this->assertSame('', (string) get_post_meta($postId, '_altimiser_structured_data', true));
     }
 
+    public function test_clears_the_whole_page_cache_for_a_default_shared_by_every_post_of_a_type(): void
+    {
+        $purged = [];
+        $record = static function (array $urls, bool $everything) use (&$purged): void {
+            $purged[] = $everything;
+        };
+        $postId = $this->createPost();
+
+        add_action('altimiser_purge_urls', $record, 10, 2);
+        $this->applyBlock($postId);
+        remove_action('altimiser_purge_urls', $record);
+
+        $this->assertSame([true], $purged);
+    }
+
     public function test_reports_later_posts_of_the_type_as_already_applied(): void
     {
         $this->applyBlock($this->createPost());
@@ -282,6 +297,14 @@ JSON;
 
         $this->assertSame('Written for search engines.', $this->printed($withYoast)['description']);
         $this->assertSame('The excerpt.', $this->printed($without)['description']);
+    }
+
+    public function test_keeps_the_text_of_a_password_protected_post_out_of_its_markup(): void
+    {
+        $postId = $this->createPost(['post_password' => 'members', 'post_excerpt' => 'Only for members.', 'post_content' => 'The terms we agreed.']);
+        $this->applyBlock($postId, '{"description": "{{ meta_description }}", "excerpt": "{{ excerpt }}"}');
+
+        $this->assertSame(['description' => '', 'excerpt' => ''], $this->printed($postId));
     }
 
     public function test_cannot_close_the_script_tag_it_is_printed_in(): void
