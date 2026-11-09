@@ -7,7 +7,7 @@ use Throwable;
 class ChangeDispatcher
 {
     /**
-     * @param  array<int, YoastApplier>  $appliers
+     * @param  array<int, Applier>  $appliers
      */
     public function __construct(private array $appliers, private PageCache $pageCache) {}
 
@@ -66,21 +66,10 @@ class ChangeDispatcher
     }
 
     /**
-     * Failed rather than skipped with no applier, because Altimiser withdraws the
-     * approval on a skip, and this one comes out differently once Yoast SEO is back.
-     *
      * @return array<string, mixed>
      */
     private function applyOne(ChangeRequest $change, bool $dryRun): array
     {
-        if ($this->appliers === []) {
-            return ChangeResult::failed(
-                $change->id,
-                'seo_plugin_inactive',
-                'Yoast SEO is not active on this site, so nothing was attempted. The change stays approved for the next apply.',
-            );
-        }
-
         foreach ($this->appliers as $applier) {
             if (! $applier->supports($change->check)) {
                 continue;

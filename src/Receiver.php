@@ -2,6 +2,7 @@
 
 namespace AltDesign\Altimiser;
 
+use Throwable;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -53,20 +54,64 @@ class Receiver
 
     public function health(): WP_REST_Response
     {
-        $checks = array_merge([], ...array_map(
-            static fn (YoastApplier $applier): array => $applier->checks(),
-            $this->appliers(),
-        ));
+        $checks = $this->advertisedChecks();
 
         return $this->uncached([
             'receiver' => 'wordpress',
             'receiver_version' => get_file_data($this->pluginFile, ['version' => 'Version'])['version'],
             'cms_version' => get_bloginfo('version'),
-            'capabilities' => $checks === [] ? [] : ['content.update'],
+            'capabilities' => $this->capabilities($checks),
             'checks' => $checks,
             'integrations' => ['yoast' => $this->yoastState()],
+            'setup' => $this->setup(),
             'site_url' => home_url(),
         ]);
+    }
+
+    /**
+     * An applier that throws is left out rather than stopping the answer, so a fault
+     * in Yoast costs its own checks and not the connection.
+     *
+     * @return array<int, string>
+     */
+    private function advertisedChecks(): array
+    {
+        $checks = [];
+
+        foreach ($this->appliers() as $applier) {
+            try {
+                $checks = [...$checks, ...$applier->checks()];
+            } catch (Throwable $exception) {
+                error_log("Altimiser left out the checks of one applier: {$exception->getMessage()}");
+            }
+        }
+
+        return array_values(array_unique($checks));
+    }
+
+    /**
+     * @param  array<int, string>  $checks
+     * @return array<int, string>
+     */
+    private function capabilities(array $checks): array
+    {
+        return array_keys(array_filter([
+            'content.update' => $checks !== [],
+            'content.link' => in_array('link.opportunity', $checks, true),
+        ]));
+    }
+
+    /**
+     * Settings that stop fixes from counting, which Altimiser reports as findings.
+     *
+     * @return array<string, bool>
+     */
+    private function setup(): array
+    {
+        return [
+            'search_engines_discouraged' => (string) get_option('blog_public', '1') === '0',
+            'plain_permalinks' => (string) get_option('permalink_structure') === '',
+        ];
     }
 
     public function changes(WP_REST_Request $request): WP_REST_Response|WP_Error
@@ -105,11 +150,15 @@ class Receiver
     }
 
     /**
-     * @return array<int, YoastApplier>
+     * @return array<int, Applier>
      */
     private function appliers(): array
     {
-        return $this->yoast === null ? [] : [new YoastApplier($this->yoast, new ContentResolver())];
+        $content = new ContentResolver();
+
+        return [
+            $this->yoast === null ? new InactiveSeoPlugin() : new YoastApplier($this->yoast, $content),
+        ];
     }
 
     /**

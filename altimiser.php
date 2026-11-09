@@ -20,17 +20,14 @@ use AltDesign\Altimiser\Yoast;
 
 defined('ABSPATH') || exit;
 
-require_once __DIR__.'/src/ChangeDispatcher.php';
-require_once __DIR__.'/src/ChangeRequest.php';
-require_once __DIR__.'/src/ChangeResult.php';
-require_once __DIR__.'/src/ContentResolver.php';
-require_once __DIR__.'/src/ControlPanel.php';
-require_once __DIR__.'/src/PageCache.php';
-require_once __DIR__.'/src/Receiver.php';
-require_once __DIR__.'/src/ReviewQueuePage.php';
-require_once __DIR__.'/src/Updater.php';
-require_once __DIR__.'/src/Yoast.php';
-require_once __DIR__.'/src/YoastApplier.php';
+spl_autoload_register(static function (string $class): void {
+    $namespace = 'AltDesign\\Altimiser\\';
+    $file = __DIR__.'/src/'.str_replace('\\', '/', substr($class, strlen($namespace))).'.php';
+
+    if (str_starts_with($class, $namespace) && is_file($file)) {
+        require $file;
+    }
+});
 
 add_action('rest_api_init', static function (): void {
     (new Receiver(__FILE__, defined('WPSEO_VERSION') ? new Yoast() : null))->registerRoutes();
