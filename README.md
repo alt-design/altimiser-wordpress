@@ -63,6 +63,8 @@ It reports what structured data and drafts can use as well: `collections`, the p
 
 These are written to the post, page, custom post type or taxonomy term the URL belongs to, as long as its type has public pages. A shared template is never edited and a meta title is never written to `post_title`.
 
+`canonical.missing` is not handled. Yoast SEO prints a canonical on every page it lets search engines index, and Altimiser only checks those pages, so a missing canonical means a theme or another plugin has taken Yoast's away. Writing Yoast's canonical field would not bring it back, so that one needs a developer.
+
 | Checks | Where it is written |
 | --- | --- |
 | `image.alt_missing`, `alt_empty`, `alt_too_long` | The image's alt text in the media library, and the page's own copy of it |
