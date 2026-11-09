@@ -81,6 +81,14 @@ class AltTextTest extends ReceiverTestCase
         $this->assertSame('already_applied', $this->sendAlt()['status']);
     }
 
+    public function test_counts_a_change_to_the_wording_already_there_as_done(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        $this->setContent($this->imageBlock($this->imageId, "{$this->uploads}/2026/11/harbour.jpg", 'The harbour'));
+
+        $this->assertSame('already_applied', $this->sendAlt(['check' => 'image.alt_too_long', 'current_value' => 'The harbour', 'suggested_value' => 'The harbour'])['status']);
+    }
+
     public function test_keeps_a_cover_block_valid_by_writing_its_attribute_as_well(): void
     {
         $url = "{$this->uploads}/2026/11/harbour.jpg";

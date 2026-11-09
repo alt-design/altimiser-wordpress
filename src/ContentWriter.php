@@ -38,18 +38,25 @@ class ContentWriter
 
     /**
      * A page builder keeps the page in its own data and leaves post_content as a copy
-     * it overwrites on the next save, so an edit there would show nowhere.
+     * it overwrites on the next save, or keeps the page as shortcodes whose attributes
+     * carry text, so an edit would show nowhere or break the layout. A builder's own
+     * shortcodes in the content are taken as a sign of one whose setting is missing.
      */
     public function pageBuilder(int $postId): ?string
     {
-        if (get_post_meta($postId, '_elementor_edit_mode', true) === 'builder') {
-            return 'Elementor';
-        }
+        $meta = static fn (string $key): mixed => get_post_meta($postId, $key, true);
 
-        if ((bool) get_post_meta($postId, '_fl_builder_enabled', true)) {
-            return 'Beaver Builder';
-        }
-
-        return null;
+        return match (true) {
+            $meta('_elementor_edit_mode') === 'builder' => 'Elementor',
+            (bool) $meta('_fl_builder_enabled') => 'Beaver Builder',
+            $meta('_et_pb_use_builder') === 'on' => 'Divi',
+            $meta('_wpb_vc_js_status') === 'true' => 'WPBakery',
+            $meta('fusion_builder_status') === 'active' => 'Avada',
+            ! empty($meta('ct_builder_shortcodes')) || ! empty($meta('ct_builder_json')) => 'Oxygen',
+            ! empty($meta('_bricks_page_content_2')) => 'Bricks',
+            ! empty($meta('panels_data')) => 'SiteOrigin Page Builder',
+            preg_match('/\[(?:et_pb_|vc_|fusion_)/', (string) get_post_field('post_content', $postId)) === 1 => 'a page builder',
+            default => null,
+        };
     }
 }

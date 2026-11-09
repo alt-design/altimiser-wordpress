@@ -32,6 +32,22 @@ class SettingsPageTest extends WP_UnitTestCase
         $this->assertSame(['altimiser_url' => 'https://altimiser.example.com', 'secret' => $this->longSecret], $saved);
     }
 
+    public function test_turns_away_a_plain_http_address_except_for_a_development_machine(): void
+    {
+        $refused = (new SettingsPage())->sanitise(['altimiser_url' => 'http://altimiser.example.com']);
+
+        $this->assertArrayNotHasKey('altimiser_url', $refused);
+        $this->assertSame('altimiser_url_not_https', get_settings_errors(Settings::$option)[0]['code']);
+        $this->assertSame(['altimiser_url' => 'http://altimiser.test'], (new SettingsPage())->sanitise(['altimiser_url' => 'http://altimiser.test']));
+    }
+
+    public function test_ignores_a_plain_http_address_set_in_wp_config(): void
+    {
+        define('ALTIMISER_URL', 'http://altimiser.example.com');
+
+        $this->assertNull(Settings::altimiserUrl());
+    }
+
     public function test_keeps_the_saved_secret_when_the_field_is_left_blank(): void
     {
         update_option(Settings::$option, ['secret' => $this->longSecret]);

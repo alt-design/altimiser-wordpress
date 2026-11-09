@@ -7,7 +7,7 @@ use WP_Post;
 /**
  * Links a page that already names another page to it, using the words that are
  * already there. The change carries the words in target.anchor and the destination in
- * target.href. A revert arrives as the same change with its values swapped, so a
+ * target.href, which has to be a path or an http address on this site. A revert arrives as the same change with its values swapped, so a
  * suggested value that is the anchor itself means take the link off again.
  *
  * The post's own content is read first, then its ACF editor fields in the order ACF
@@ -45,6 +45,10 @@ class LinkApplier implements Applier
             );
         }
 
+        if (! $this->onThisSite($href)) {
+            return ChangeResult::skipped($change->id, 'invalid_change', 'A link change can only point to a page on this site.');
+        }
+
         $post = $this->content->find($change->url);
 
         if (! $post instanceof WP_Post) {
@@ -77,6 +81,28 @@ class LinkApplier implements Applier
         }
 
         return ChangeResult::applied($change->id, $location, $change->currentValue, $change->suggestedValue);
+    }
+
+    /**
+     * A path from the root, or an http address on this site's host. A leading "//" or
+     * "/\" is another host to a browser, so a backslash or whitespace anywhere is
+     * refused rather than guessed at.
+     */
+    private function onThisSite(string $href): bool
+    {
+        if (preg_match('/[\s\\\\\x00-\x1f\x7f]/', $href) === 1) {
+            return false;
+        }
+
+        if (preg_match('#^/(?!/)#', $href) === 1) {
+            return true;
+        }
+
+        if (! in_array(strtolower((string) parse_url($href, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+            return false;
+        }
+
+        return strtolower((string) parse_url($href, PHP_URL_HOST)) === strtolower((string) parse_url(home_url(), PHP_URL_HOST));
     }
 
     /**

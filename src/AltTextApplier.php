@@ -53,7 +53,7 @@ class AltTextApplier implements Applier
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false]
             : $this->rewrite($post->post_content, $attachmentId, $source, $current, $suggested);
-        $writesLibrary = $stored === $current;
+        $writesLibrary = $stored === $current && $stored !== $suggested;
 
         if (! $writesLibrary && ! $copy['changed']) {
             return $stored === $suggested || $copy['already']
@@ -116,7 +116,7 @@ class AltTextApplier implements Applier
             $alt = is_string($alt) ? trim($alt) : '';
             $already = $already || $alt === $suggested;
 
-            if ($alt === $current) {
+            if ($alt === $current && $alt !== $suggested) {
                 $tags->set_attribute('alt', $suggested);
                 $changed = true;
             }
@@ -127,7 +127,7 @@ class AltTextApplier implements Applier
             static function (array $comment) use ($attachmentId, $current, $suggested, &$changed): string {
                 $attributes = json_decode($comment[1], true);
 
-                if (! is_array($attributes) || ($attributes['id'] ?? null) !== $attachmentId || trim((string) ($attributes['alt'] ?? '')) !== $current) {
+                if (! is_array($attributes) || ($attributes['id'] ?? null) !== $attachmentId || trim((string) ($attributes['alt'] ?? '')) !== $current || $current === $suggested) {
                     return $comment[0];
                 }
 

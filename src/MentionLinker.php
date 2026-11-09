@@ -7,21 +7,26 @@ namespace AltDesign\Altimiser;
  * link off again. Only words already there are linked, so nothing needs rewording and
  * taking the link off restores the HTML as it was.
  *
- * A mention inside a tag, a comment (block delimiters included), a heading, code or a
- * form control is passed over. A mention inside a link's text is the first mention,
+ * A mention inside a tag, a shortcode, a comment (block delimiters included), a heading,
+ * code, a form control or a summary, or inside an SVG, is passed over. Tags are read
+ * with their quoted attributes, so a ">" inside an attribute does not end one. A
+ * mention inside a link's text is the first mention,
  * and is answered for rather than passed over: somebody chose that link, and linking
  * a later mention instead would put two destinations on one name.
  */
 class MentionLinker
 {
+    private static string $attributes = '(?:[^>"\']|"[^"]*"|\'[^\']*\')*';
+
     /**
      * @return array{outcome: string, html: string} outcome is changed, already, inside_link or not_found
      */
     public function link(string $html, string $anchor, string $href): array
     {
         $mention = $this->expression($anchor);
-        $markup = $this->spans('/<!--.*?-->|<[^>]*>/su', $html);
-        $passedOver = $this->spans('/<(script|style|textarea|select|button|code|pre|h[1-6])\b[^>]*>.*?<\/\1\s*>/isu', $html);
+        $attributes = self::$attributes;
+        $markup = $this->spans("/<!--.*?-->|<{$attributes}>|\[\/?[a-z_][^\]]*\]/isu", $html);
+        $passedOver = $this->spans("/<(script|style|textarea|select|option|button|label|summary|code|pre|svg|math|title|iframe|noscript|h[1-6])\b{$attributes}>.*?<\/\\1\s*>/isu", $html);
         $links = $this->links($html);
 
         preg_match_all("/{$mention}/iu", $html, $matches, PREG_OFFSET_CAPTURE);
@@ -43,7 +48,7 @@ class MentionLinker
                 continue;
             }
 
-            $linked = sprintf('<a href="%s">%s</a>', esc_attr($href), $text);
+            $linked = sprintf('<a href="%s">%s</a>', esc_url($href), $text);
 
             return ['outcome' => 'changed', 'html' => substr_replace($html, $linked, $offset, strlen($text))];
         }
@@ -87,7 +92,9 @@ class MentionLinker
      */
     private function links(string $html): array
     {
-        preg_match_all('/<a\b([^>]*)>(.*?)<\/a\s*>/isu', $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        $attributes = self::$attributes;
+
+        preg_match_all("/<a\b({$attributes})>(.*?)<\/a\s*>/isu", $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
 
         return array_map(static function (array $match): array {
             preg_match('/\bhref\s*=\s*(["\'])(.*?)\1/i', $match[1][0], $href);

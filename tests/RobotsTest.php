@@ -84,6 +84,35 @@ class RobotsTest extends ReceiverTestCase
         $this->assertFalse(get_option('altimiser_robots_sitemap'));
     }
 
+    public function test_refuses_a_sitemap_value_that_adds_lines_or_names_another_site(): void
+    {
+        file_put_contents("{$this->root}/robots.txt", "User-agent: *\nDisallow: /private/\n");
+
+        foreach (["Sitemap: https://example.org/sitemap.xml\nDisallow: /", 'Sitemap: https://other.example/sitemap.xml', 'Sitemap: javascript:alert(1)'] as $suggested) {
+            $this->assertSame('invalid_change', $this->apply('sitemap.not_declared_in_robots', $suggested)['reason'], $suggested);
+        }
+
+        $this->assertSame("User-agent: *\nDisallow: /private/\n", $this->robots());
+    }
+
+    public function test_accepts_the_sitemap_on_the_www_form_of_the_sites_host(): void
+    {
+        file_put_contents("{$this->root}/robots.txt", "User-agent: *\n");
+
+        $this->assertSame('applied', $this->apply('sitemap.not_declared_in_robots', 'Sitemap: https://www.example.org/sitemap.xml')['status']);
+    }
+
+    public function test_writes_no_file_letting_crawlers_in_on_a_site_that_discourages_them(): void
+    {
+        update_option('blog_public', '0');
+
+        $result = $this->apply('site.robots_missing', null);
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('search_discouraged', $result['reason']);
+        $this->assertFileDoesNotExist("{$this->root}/robots.txt");
+    }
+
     public function test_skips_a_site_that_is_not_at_the_root_of_its_domain(): void
     {
         update_option('home', 'http://example.org/blog');

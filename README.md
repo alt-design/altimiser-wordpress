@@ -76,13 +76,13 @@ The image is found from the address the scan saw, which may be a resized copy, o
 
 ### Links
 
-The plugin turns the first mention of another page's heading into a link to it, adding no words. It reads the page's content first, then any ACF editor fields, including those inside groups, repeaters and flexible content. ACF text areas are left alone, because themes commonly escape them and the link would show as markup. A mention inside a heading, code, a form control or a script is passed over, and the content is saved without WordPress's filtering of untrusted HTML, so embeds, scripts and forms on the page stay as they were.
+The plugin turns the first mention of another page's heading into a link to it, adding no words. It reads the page's content first, then any ACF editor fields, including those inside groups, repeaters and flexible content. ACF text areas are left alone, because themes commonly escape them and the link would show as markup. Only a path on this site or an address on its own host is linked to. A mention inside a heading, code, a form control, a summary, an SVG, a script or a shortcode's settings is passed over, and the content is saved without WordPress's filtering of untrusted HTML, so embeds, scripts and forms on the page stay as they were.
 
 A revert takes the link off again and restores the words as they were.
 
 ### robots.txt
 
-A missing `robots.txt` is created with no `Disallow` rules and the site's sitemap, Yoast SEO's where it makes one. A missing sitemap line is added to the file where there is one, and otherwise to what WordPress prints, through the `robots_txt` filter, which keeps the rules WordPress and other plugins print there. Neither is reverted. A site not at the root of its domain has no `robots.txt` of its own, so both are refused there.
+A missing `robots.txt` is created with no `Disallow` rules and the site's sitemap, Yoast SEO's where it makes one. A missing sitemap line is added to the file where there is one, and otherwise to what WordPress prints, through the `robots_txt` filter, which keeps the rules WordPress and other plugins print there. Neither is reverted. A site not at the root of its domain has no `robots.txt` of its own, so both are refused there. On a multisite network every site is served from one folder, so a file there would answer for all of them: no file is created or edited, and a sitemap goes only into what WordPress prints for that site. A site set to discourage search engines is not given a file that lets them in. The sitemap address has to be a single http or https address on the site's own host.
 
 `canonical.missing` is left to a developer. Yoast SEO prints a canonical itself except on noindex pages, so a missing one points to something else on the site.
 
@@ -94,12 +94,13 @@ A change is refused rather than guessed at, and the finding goes to a person:
 | `ambiguous` | The page has no value of its own and its template does not produce what the scan saw. A renamed page does this, and so does a `wpseo_title` or `wpseo_metadesc` filter, so a site using those filters gets inherited values refused |
 | `not_found` | Nothing editable answers to the URL. This covers a blog home listing latest posts, post type and author archives, term pages on plain permalinks, a type with no pages of its own such as a menu item, and a page's address with a query on the end, such as a search or a campaign link |
 | `no_suggestion` | There is no replacement value, as with `og:image` |
-| `no_field` | Yoast SEO has no text field for that tag, or the site is not at the root of its domain, so has no `robots.txt` |
+| `no_field` | Yoast SEO has no text field for that tag, or the site has no `robots.txt` of its own to write, because it is not at the root of its domain or is on a multisite network |
+| `search_discouraged` | The site is set to discourage search engines, so a `robots.txt` that lets them in was not written |
 | `no_match` | The image is not in the media library |
 | `already_linked` | The first mention to link already links somewhere else, which somebody chose |
 | `mention_not_found` | The words to link are not in the page's content, usually because the theme prints them |
-| `page_builder` | The page is built with Elementor or Beaver Builder, which keep the page in their own data. Alt text still goes into the media library, which they print |
-| `invalid_change` | A link change arrived without the words to link or where to link them |
+| `page_builder` | The page is built with Elementor, Beaver Builder, Divi, WPBakery, Avada, Oxygen, Bricks or SiteOrigin, or its content holds another builder's shortcodes. These keep the page in their own data or in shortcode settings, where an edit would be lost or break the layout. Alt text still goes into the media library, which they print |
+| `invalid_change` | A link change arrived without the words to link or where to link them, or pointing off the site, or a sitemap address that is not on the site |
 
 If Yoast SEO is not active when one of its changes arrives, nothing is attempted and the change comes back as `failed` with the reason `seo_plugin_inactive`. That keeps its approval, so it goes out again on the next apply.
 
@@ -137,7 +138,7 @@ This is optional. Add Altimiser's address on **Settings > Altimiser**, or in `wp
 define('ALTIMISER_URL', 'https://altimiser.example.com');
 ```
 
-The page shows the queue in a frame that fills the space beside the menu. Altimiser only allows framing by the origin of the site's URL, so the queue will not load for an admin served from another origin, or in a browser that refuses the frame. The frame's link is signed on the server, carries the email address of whoever is signed in, which is who an approval gets recorded against, and expires. Reloading the page gets a new one.
+The address has to start with `https://`, except for `localhost` or a `.test` address on a development machine. The page shows the queue in a frame that fills the space beside the menu. Altimiser only allows framing by the origin of the site's URL, so the queue will not load for an admin served from another origin, or in a browser that refuses the frame. The frame's link is signed on the server, carries the email address of whoever is signed in, which is who an approval gets recorded against, and expires. Reloading the page gets a new one.
 
 The menu item shows how many changes are waiting for review. The dashboard widget shows the same, along with how many approved changes are waiting to be applied and how many of the site's open findings Altimiser can fix here. The counts are kept for five minutes, so they can lag behind the queue. Altimiser is given two seconds to answer, and only one admin page asks at a time. If it cannot be reached the counts are left out, and it is not asked again for five minutes.
 

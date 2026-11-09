@@ -32,7 +32,8 @@ class Receiver
     /**
      * A refused request that carried a signature is logged, because it is most likely
      * Altimiser with the wrong secret or a clock out of step. Ones without are left out,
-     * since anything probing the route would fill the log.
+     * and at most one a minute is logged, since anything can send the header and a
+     * caller sending many would otherwise fill the log.
      */
     public function verifySignature(WP_REST_Request $request): bool|WP_Error
     {
@@ -43,10 +44,20 @@ class Receiver
         }
 
         if ($request->get_header('X-Altimiser-Signature') !== null) {
-            error_log("Altimiser refused a signed request to {$request->get_route()}: {$refusal}");
+            $this->logRefusal("Altimiser refused a signed request to {$request->get_route()}: {$refusal}");
         }
 
         return new WP_Error('altimiser_refused', $refusal, ['status' => 401]);
+    }
+
+    private function logRefusal(string $message): void
+    {
+        if (get_transient('altimiser_refusal_logged') !== false) {
+            return;
+        }
+
+        set_transient('altimiser_refusal_logged', 1, MINUTE_IN_SECONDS);
+        error_log($message);
     }
 
     private function refusal(WP_REST_Request $request): ?string

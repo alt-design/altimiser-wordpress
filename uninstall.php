@@ -13,6 +13,7 @@ $forgetThisSite = static function (): void {
     delete_option('altimiser_robots_sitemap');
     delete_transient('altimiser_summary');
     delete_transient('altimiser_summary_lock');
+    delete_transient('altimiser_refusal_logged');
 };
 
 if (! is_multisite()) {

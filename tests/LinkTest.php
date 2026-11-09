@@ -140,6 +140,56 @@ class LinkTest extends ReceiverTestCase
         $this->assertSame($this->original, get_post($this->pageId)->post_content);
     }
 
+    public function test_refuses_a_destination_that_is_not_a_page_on_this_site(): void
+    {
+        foreach (['javascript:alert(1)', '//other.example/covenants', '/\\other.example/covenants', 'https://other.example/covenants', "/insights\n/covenants"] as $href) {
+            $result = $this->sendLink(['target' => [...$this->linkChange()['target'], 'href' => $href]]);
+
+            $this->assertSame('invalid_change', $result['reason'], $href);
+        }
+
+        $this->assertSame($this->original, get_post($this->pageId)->post_content);
+    }
+
+    public function test_links_to_a_full_address_on_this_site(): void
+    {
+        $result = $this->sendLink(['target' => [...$this->linkChange()['target'], 'href' => home_url('/insights/restrictive-covenant-clause/')]]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertStringContainsString('<a href="'.home_url('/insights/restrictive-covenant-clause/').'">the restrictive', get_post($this->pageId)->post_content);
+    }
+
+    public function test_passes_over_shortcodes_quoted_attributes_and_summaries(): void
+    {
+        $this->setContent(
+            '[gallery title="The restrictive covenant clause"]'
+            .'<img alt="a > b" title="The restrictive covenant clause" src="/a.jpg">'
+            .'<details><summary>The restrictive covenant clause</summary></details>'
+            .'<p>The restrictive covenant clause applies.</p>',
+        );
+
+        $this->assertSame('applied', $this->sendLink()['status']);
+        $this->assertSame(
+            '[gallery title="The restrictive covenant clause"]'
+            .'<img alt="a > b" title="The restrictive covenant clause" src="/a.jpg">'
+            .'<details><summary>The restrictive covenant clause</summary></details>'
+            .'<p><a href="/insights/restrictive-covenant-clause">The restrictive covenant clause</a> applies.</p>',
+            get_post($this->pageId)->post_content,
+        );
+    }
+
+    public function test_leaves_a_page_built_with_divi_or_with_another_builders_shortcodes_alone(): void
+    {
+        update_post_meta($this->pageId, '_et_pb_use_builder', 'on');
+
+        $this->assertSame('page_builder', $this->sendLink()['reason']);
+
+        delete_post_meta($this->pageId, '_et_pb_use_builder');
+        $this->setContent('[vc_row][vc_column_text]<p>The restrictive covenant clause applies.</p>[/vc_column_text][/vc_row]');
+
+        $this->assertSame('page_builder', $this->sendLink()['reason']);
+    }
+
     public function test_skips_a_link_change_with_no_words_to_link(): void
     {
         $result = $this->sendLink(['target' => ['selector' => 'a', 'attribute' => 'href', 'href' => '/insights/restrictive-covenant-clause']]);
@@ -158,7 +208,9 @@ class LinkTest extends ReceiverTestCase
 
     private function setContent(string $content): void
     {
+        kses_remove_filters();
         wp_update_post(wp_slash(['ID' => $this->pageId, 'post_content' => $content]));
+        kses_init_filters();
     }
 
     private function registerSections(): void
