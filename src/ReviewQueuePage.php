@@ -12,6 +12,7 @@ class ReviewQueuePage
     {
         add_action('admin_menu', [$this, 'addMenuItem']);
         add_action('wp_dashboard_setup', [$this, 'addDashboardWidget']);
+        add_action('admin_enqueue_scripts', [$this, 'addStyles']);
     }
 
     public function addMenuItem(): void
@@ -20,7 +21,14 @@ class ReviewQueuePage
             return;
         }
 
-        add_menu_page('Altimiser', 'Altimiser'.$this->badge(), $this->capability, 'altimiser', [$this, 'render'], $this->icon());
+        add_menu_page(
+            __('Altimiser', 'altimiser'),
+            __('Altimiser', 'altimiser').$this->badge(),
+            $this->capability,
+            'altimiser',
+            [$this, 'render'],
+            $this->icon(),
+        );
     }
 
     /**
@@ -44,25 +52,57 @@ class ReviewQueuePage
             return;
         }
 
-        wp_add_dashboard_widget('altimiser', 'Altimiser', [$this, 'renderWidget']);
+        wp_add_dashboard_widget('altimiser', __('Altimiser', 'altimiser'), [$this, 'renderWidget']);
+    }
+
+    /**
+     * The queue fills the screen below the admin bar, with WordPress's own padding and
+     * footer taken away around it.
+     */
+    public function addStyles(string $hook): void
+    {
+        if ($hook !== 'toplevel_page_altimiser') {
+            return;
+        }
+
+        wp_register_style('altimiser-review-queue', false, [], null);
+        wp_enqueue_style('altimiser-review-queue');
+        wp_add_inline_style(
+            'altimiser-review-queue',
+            '.wp-admin #wpcontent{padding:0}#wpbody-content{padding-bottom:0}#wpfooter{display:none}'
+            .'.altimiser-review-queue{display:block;width:100%;height:calc(100vh - var(--wp-admin--admin-bar--height,32px));border:0}',
+        );
     }
 
     public function render(): void
     {
         printf(
-            '<style>.wp-admin #wpcontent{padding:0}#wpbody-content{padding-bottom:0}#wpfooter{display:none}</style>'
-            .'<iframe src="%s" title="Altimiser review queue" style="display:block;width:100%%;height:calc(100vh - var(--wp-admin--admin-bar--height,32px));border:0" '
+            '<iframe class="altimiser-review-queue" src="%s" title="%s" '
             .'sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"></iframe>',
             esc_url($this->panel->reviewUrl(wp_get_current_user()->user_email, $this->panel->linkExpiry())),
+            esc_attr__('Altimiser review queue', 'altimiser'),
         );
     }
 
     public function renderWidget(): void
     {
+        $summary = $this->panel->summary();
+
+        printf('<p>%s</p>', esc_html($this->describe($summary['awaiting_review'] ?? null)));
+
+        $details = array_filter([$this->pending($summary), $this->handled($summary)]);
+
+        if ($details !== []) {
+            printf('<ul>%s</ul>', implode('', array_map(
+                static fn (string $detail): string => '<li>'.esc_html($detail).'</li>',
+                $details,
+            )));
+        }
+
         printf(
-            '<p>%s</p><p><a class="button button-primary" href="%s">Open the review queue</a></p>',
-            esc_html($this->describe($this->panel->awaitingReview())),
+            '<p><a class="button button-primary" href="%s">%s</a></p>',
             esc_url(admin_url('admin.php?page=altimiser')),
+            esc_html__('Open the review queue', 'altimiser'),
         );
     }
 
@@ -75,18 +115,67 @@ class ReviewQueuePage
         }
 
         return sprintf(
-            ' <span class="awaiting-mod"><span aria-hidden="true">%1$d</span><span class="screen-reader-text">%1$d waiting for review</span></span>',
+            ' <span class="awaiting-mod"><span aria-hidden="true">%1$d</span><span class="screen-reader-text">%2$s</span></span>',
             $count,
+            esc_html(sprintf(
+                /* translators: %d: how many changes are waiting for review */
+                _n('%d waiting for review', '%d waiting for review', $count, 'altimiser'),
+                $count,
+            )),
         );
     }
 
     private function describe(?int $count): string
     {
-        return match ($count) {
-            null => 'The count is not available right now, but the review queue should still open.',
-            0 => 'Nothing is waiting for review.',
-            1 => '1 change is waiting for review.',
-            default => "{$count} changes are waiting for review.",
-        };
+        if ($count === null) {
+            return __('The count is not available right now, but the review queue should still open.', 'altimiser');
+        }
+
+        if ($count === 0) {
+            return __('Nothing is waiting for review.', 'altimiser');
+        }
+
+        return sprintf(
+            /* translators: %d: how many changes are waiting for review */
+            _n('%d change is waiting for review.', '%d changes are waiting for review.', $count, 'altimiser'),
+            $count,
+        );
+    }
+
+    /**
+     * @param  ?array<string, int>  $summary
+     */
+    private function pending(?array $summary): ?string
+    {
+        $pending = $summary['pending'] ?? 0;
+
+        if ($pending === 0) {
+            return null;
+        }
+
+        return sprintf(
+            /* translators: %d: how many approved changes have not been applied yet */
+            _n('%d approved change is waiting to be applied.', '%d approved changes are waiting to be applied.', $pending, 'altimiser'),
+            $pending,
+        );
+    }
+
+    /**
+     * @param  ?array<string, int>  $summary
+     */
+    private function handled(?array $summary): ?string
+    {
+        $outstanding = $summary['outstanding'] ?? 0;
+
+        if ($outstanding === 0) {
+            return null;
+        }
+
+        return sprintf(
+            /* translators: 1: findings this plugin can fix, 2: all open findings */
+            _n('Altimiser can apply fixes for %1$d of the %2$d open finding on this site.', 'Altimiser can apply fixes for %1$d of the %2$d open findings on this site.', $outstanding, 'altimiser'),
+            $summary['handled'] ?? 0,
+            $outstanding,
+        );
     }
 }

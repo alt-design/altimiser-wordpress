@@ -64,7 +64,7 @@ class ControlPanelTest extends WP_UnitTestCase
         $this->assertSame('https://altimiser.example.com/api/summary?site=https%3A%2F%2Fexample.com', $url);
         $this->assertSame('sha256='.hash_hmac('sha256', "{$timestamp}\n", 'shared-secret'), $args['headers']['X-Altimiser-Signature']);
         $this->assertEqualsWithDelta(time(), (int) $timestamp, 2);
-        $this->assertSame(5, $args['timeout']);
+        $this->assertSame(2, $args['timeout']);
         $this->assertSame(0, $args['redirection']);
     }
 
@@ -124,7 +124,7 @@ class ControlPanelTest extends WP_UnitTestCase
      */
     public function test_needs_altimisers_address_before_it_can_link_to_it(): void
     {
-        define('ALTIMISER_SECRET', 'shared-secret');
+        define('ALTIMISER_SECRET', 'a-shared-secret-of-at-least-32-characters');
 
         $this->assertNull(ControlPanel::configured());
     }
@@ -149,7 +149,7 @@ class ControlPanelTest extends WP_UnitTestCase
     public function test_names_the_site_by_its_own_address_with_no_trailing_slash(): void
     {
         define('ALTIMISER_URL', 'https://altimiser.example.com/');
-        define('ALTIMISER_SECRET', 'shared-secret');
+        define('ALTIMISER_SECRET', 'a-shared-secret-of-at-least-32-characters');
         add_filter('home_url', static fn (): string => 'https://client.example.com/');
 
         $url = ControlPanel::configured()->reviewUrl('', 1769558400);
@@ -166,7 +166,7 @@ class ControlPanelTest extends WP_UnitTestCase
     public function test_takes_the_sites_address_from_a_constant_where_the_two_disagree(): void
     {
         define('ALTIMISER_URL', 'https://altimiser.example.com');
-        define('ALTIMISER_SECRET', 'shared-secret');
+        define('ALTIMISER_SECRET', 'a-shared-secret-of-at-least-32-characters');
         define('ALTIMISER_SITE_URL', 'https://www.client.example.com/');
         define('ALTIMISER_LINK_MINUTES', 10);
 

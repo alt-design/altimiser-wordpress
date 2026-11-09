@@ -149,6 +149,47 @@ class HealthTest extends ReceiverTestCase
         $this->assertNotContains(false, $this->dispatch($this->signedRequest())->get_headers());
     }
 
+    public function test_reports_settings_that_stop_fixes_from_counting(): void
+    {
+        update_option('blog_public', '0');
+        $this->set_permalink_structure('');
+
+        $setup = $this->dispatch($this->signedRequest())->get_data()['setup'];
+
+        update_option('blog_public', '1');
+
+        $this->assertSame(['search_engines_discouraged' => true, 'plain_permalinks' => true], $setup);
+    }
+
+    public function test_reports_a_site_set_up_to_be_found(): void
+    {
+        $this->set_permalink_structure('/%postname%/');
+
+        $setup = $this->dispatch($this->signedRequest())->get_data()['setup'];
+
+        $this->assertSame(['search_engines_discouraged' => false, 'plain_permalinks' => false], $setup);
+    }
+
+    public function test_still_answers_when_yoast_throws_and_leaves_out_only_its_checks(): void
+    {
+        $failing = static function (): never {
+            throw new RuntimeException('Yoast could not read its options.');
+        };
+
+        add_filter('pre_option_wpseo_social', $failing);
+        WPSEO_Options::clear_cache();
+
+        $logged = ini_set('error_log', '/dev/null');
+        $response = $this->dispatch($this->signedRequest());
+
+        ini_set('error_log', (string) $logged);
+        remove_filter('pre_option_wpseo_social', $failing);
+        WPSEO_Options::clear_cache();
+
+        $this->assertSame(200, $response->get_status());
+        $this->assertNotContains('title.too_long', $response->get_data()['checks']);
+    }
+
     public function test_says_nothing_about_the_site_to_an_unsigned_request(): void
     {
         $response = $this->dispatch($this->request());

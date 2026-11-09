@@ -186,7 +186,7 @@ class ReviewQueuePageTest extends WP_UnitTestCase
 
         $html = html_entity_decode($this->renderedPage(), ENT_QUOTES);
 
-        preg_match('/<iframe src="([^"]+)"/', $html, $frame);
+        preg_match('/<iframe[^>]* src="([^"]+)"/', $html, $frame);
 
         $this->assertStringContainsString('user=editor%40example.com', $frame[1]);
         $this->assertStringContainsString('embedded=1', $frame[1]);
@@ -254,5 +254,42 @@ class ReviewQueuePageTest extends WP_UnitTestCase
             'several' => [12, '12 changes are waiting for review.'],
             'unreachable' => [new WP_Error('http_request_failed', 'Connection timed out'), 'The count is not available right now'],
         ];
+    }
+
+    public function test_says_what_is_approved_and_what_altimiser_can_fix_in_the_widget(): void
+    {
+        add_filter('pre_http_request', static fn (): array => [
+            'headers' => [],
+            'body' => wp_json_encode(['outstanding' => 42, 'handled' => 30, 'pending' => 3, 'awaiting_review' => 12, 'last_scanned_at' => '2026-11-02T03:00:12.000000Z']),
+            'response' => ['code' => 200, 'message' => ''],
+            'cookies' => [],
+            'filename' => null,
+        ]);
+        $this->signInAs('editor');
+
+        $widget = $this->renderedWidget();
+
+        $this->assertStringContainsString('3 approved changes are waiting to be applied.', $widget);
+        $this->assertStringContainsString('Altimiser can apply fixes for 30 of the 42 open findings on this site.', $widget);
+    }
+
+    public function test_leaves_out_counts_that_are_zero(): void
+    {
+        $this->altimiserCounts(0);
+        $this->signInAs('editor');
+
+        $this->assertStringNotContainsString('<ul>', $this->renderedWidget());
+    }
+
+    public function test_styles_only_its_own_page(): void
+    {
+        $this->page->addStyles('index.php');
+
+        $this->assertFalse(wp_style_is('altimiser-review-queue'));
+
+        $this->page->addStyles('toplevel_page_altimiser');
+
+        $this->assertTrue(wp_style_is('altimiser-review-queue'));
+        $this->assertStringContainsString('.altimiser-review-queue{', implode('', wp_styles()->get_data('altimiser-review-queue', 'after')));
     }
 }

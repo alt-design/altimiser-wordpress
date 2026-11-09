@@ -29,27 +29,51 @@ class Receiver
         ]);
     }
 
+    /**
+     * A refused request that carried a signature is logged, because it is most likely
+     * Altimiser with the wrong secret or a clock out of step. Ones without are left out,
+     * since anything probing the route would fill the log.
+     */
     public function verifySignature(WP_REST_Request $request): bool|WP_Error
     {
-        $secret = defined('ALTIMISER_SECRET') ? constant('ALTIMISER_SECRET') : null;
+        $refusal = $this->refusal($request);
 
-        if (! is_string($secret) || trim($secret) === '') {
-            return $this->refuse('Altimiser is not configured on this site.');
+        if ($refusal === null) {
+            return true;
+        }
+
+        if ($request->get_header('X-Altimiser-Signature') !== null) {
+            error_log("Altimiser refused a signed request to {$request->get_route()}: {$refusal}");
+        }
+
+        return new WP_Error('altimiser_refused', $refusal, ['status' => 401]);
+    }
+
+    private function refusal(WP_REST_Request $request): ?string
+    {
+        $secret = Settings::secret();
+
+        if ($secret === null) {
+            return 'Altimiser is not configured on this site.';
+        }
+
+        if (! Settings::secretIsLongEnough($secret)) {
+            return 'The Altimiser secret on this site is shorter than 32 characters, so requests are refused until it is replaced with a longer one.';
         }
 
         $timestamp = (int) $request->get_header('X-Altimiser-Timestamp');
 
         if (abs(time() - $timestamp) > $this->toleranceInSeconds) {
-            return $this->refuse('Signature timestamp is outside the accepted window.');
+            return 'Signature timestamp is outside the accepted window.';
         }
 
         $expected = 'sha256='.hash_hmac('sha256', "{$timestamp}\n{$request->get_body()}", $secret);
 
         if (! hash_equals($expected, (string) $request->get_header('X-Altimiser-Signature'))) {
-            return $this->refuse('Signature does not match.');
+            return 'Signature does not match.';
         }
 
-        return true;
+        return null;
     }
 
     public function health(): WP_REST_Response
@@ -194,10 +218,5 @@ class Receiver
         add_action('shutdown', static fn () => add_filter('post_password_required', '__return_true'), 0);
 
         return new WP_REST_Response($body, 200, array_filter(wp_get_nocache_headers()));
-    }
-
-    private function refuse(string $message): WP_Error
-    {
-        return new WP_Error('altimiser_refused', $message, ['status' => 401]);
     }
 }

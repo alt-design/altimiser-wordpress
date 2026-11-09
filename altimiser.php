@@ -10,11 +10,13 @@
  * Author: Alt Design
  * Author URI: https://alt-design.net
  * Update URI: https://github.com/alt-design/altimiser-wordpress
+ * Text Domain: altimiser
  */
 
 use AltDesign\Altimiser\ControlPanel;
 use AltDesign\Altimiser\Receiver;
 use AltDesign\Altimiser\ReviewQueuePage;
+use AltDesign\Altimiser\SettingsPage;
 use AltDesign\Altimiser\Updater;
 use AltDesign\Altimiser\Yoast;
 
@@ -34,6 +36,10 @@ add_action('rest_api_init', static function (): void {
 });
 
 add_action('plugins_loaded', static function (): void {
+    if (is_admin()) {
+        (new SettingsPage())->register();
+    }
+
     $controlPanel = ControlPanel::configured();
 
     if ($controlPanel !== null) {

@@ -22,11 +22,16 @@ class ContentResolver
      * url_to_postid() answers for unpublished records and revisions, for the addresses
      * beneath a page, such as its feed or its second page, and ignores the query, so
      * /?s=anything answers as a static home page. A suggestion made for one of those
-     * does not belong on the page itself.
+     * does not belong on the page itself. Under plain permalinks it also answers
+     * ?p=N for a menu item or any other type with no page of its own.
      */
     private function isPublishedAt(string $url, int $postId): bool
     {
         if (get_post_status($postId) !== 'publish') {
+            return false;
+        }
+
+        if (! is_post_type_viewable((string) get_post_type($postId))) {
             return false;
         }
 

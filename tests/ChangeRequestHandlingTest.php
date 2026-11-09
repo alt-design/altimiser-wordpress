@@ -127,6 +127,19 @@ class ChangeRequestHandlingTest extends ReceiverTestCase
         $this->assertSame('not_found', $result['reason']);
     }
 
+    public function test_skips_a_published_post_of_a_type_with_no_page_of_its_own(): void
+    {
+        $this->set_permalink_structure('');
+
+        $menuItem = self::factory()->post->create(['post_type' => 'nav_menu_item', 'post_status' => 'publish']);
+
+        $result = $this->sendOne(['url' => home_url("/?p={$menuItem}")]);
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('not_found', $result['reason']);
+        $this->assertSame('', get_post_meta($menuItem, '_yoast_wpseo_metadesc', true));
+    }
+
     public function test_reports_a_write_that_threw_as_failed_and_carries_on(): void
     {
         $failOnce = static function (): void {

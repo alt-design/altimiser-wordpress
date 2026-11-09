@@ -13,19 +13,19 @@ class ControlPanel
 
     public static function configured(): ?self
     {
-        $altimiserUrl = defined('ALTIMISER_URL') ? constant('ALTIMISER_URL') : null;
-        $secret = defined('ALTIMISER_SECRET') ? constant('ALTIMISER_SECRET') : null;
+        $altimiserUrl = Settings::altimiserUrl();
+        $secret = Settings::secret();
 
-        if (! is_string($altimiserUrl) || trim($altimiserUrl) === '') {
+        if ($altimiserUrl === null || $secret === null) {
             return null;
         }
 
-        if (! is_string($secret) || trim($secret) === '') {
+        if (! Settings::secretIsLongEnough($secret)) {
             return null;
         }
 
         return new self(
-            rtrim($altimiserUrl, '/'),
+            $altimiserUrl,
             rtrim(defined('ALTIMISER_SITE_URL') ? (string) constant('ALTIMISER_SITE_URL') : home_url(), '/'),
             $secret,
             defined('ALTIMISER_LINK_MINUTES') ? (int) constant('ALTIMISER_LINK_MINUTES') : 30,
@@ -49,35 +49,52 @@ class ControlPanel
         return "{$url}&signature=".hash_hmac('sha256', $url, $this->secret);
     }
 
-    /**
-     * Read on every admin page, so an unreachable Altimiser is remembered as well.
-     * Asking again each time would put the timeout in front of every screen.
-     */
     public function awaitingReview(): ?int
     {
-        $cached = get_transient('altimiser_awaiting_review');
+        return $this->summary()['awaiting_review'] ?? null;
+    }
+
+    /**
+     * Read on every admin page, so an unreachable Altimiser is remembered as well.
+     * Asking again each time would put the timeout in front of every screen, and the
+     * lock keeps the screens opened while one request waits from asking as well.
+     *
+     * @return ?array<string, int>
+     */
+    public function summary(): ?array
+    {
+        $cached = get_transient('altimiser_summary');
 
         if (is_array($cached)) {
-            return $cached['count'];
+            return $cached['summary'];
         }
 
-        $count = $this->fetchAwaitingReview();
+        if (get_transient('altimiser_summary_lock') !== false) {
+            return null;
+        }
 
-        set_transient('altimiser_awaiting_review', ['count' => $count], 5 * MINUTE_IN_SECONDS);
+        set_transient('altimiser_summary_lock', true, 30);
 
-        return $count;
+        $summary = $this->fetchSummary();
+
+        set_transient('altimiser_summary', ['summary' => $summary], 5 * MINUTE_IN_SECONDS);
+        delete_transient('altimiser_summary_lock');
+
+        return $summary;
     }
 
     /**
      * Redirects are not followed, because the signature would be sent on to wherever
-     * they lead.
+     * they lead. Only whole numbers are kept, and the badge's count has to be one of them.
+     *
+     * @return ?array<string, int>
      */
-    private function fetchAwaitingReview(): ?int
+    private function fetchSummary(): ?array
     {
         $timestamp = time();
 
         $response = wp_remote_get("{$this->altimiserUrl}/api/summary?".http_build_query(['site' => $this->siteUrl]), [
-            'timeout' => 5,
+            'timeout' => 2,
             'redirection' => 0,
             'headers' => [
                 'X-Altimiser-Timestamp' => (string) $timestamp,
@@ -90,8 +107,12 @@ class ControlPanel
             return null;
         }
 
-        $count = json_decode(wp_remote_retrieve_body($response), true)['awaiting_review'] ?? null;
+        $body = json_decode(wp_remote_retrieve_body($response), true);
 
-        return is_int($count) ? $count : null;
+        if (! is_int($body['awaiting_review'] ?? null)) {
+            return null;
+        }
+
+        return array_filter($body, 'is_int');
     }
 }

@@ -9,7 +9,7 @@
  */
 abstract class ReceiverTestCase extends WP_UnitTestCase
 {
-    protected static string $secret = 'shared-secret';
+    protected static string $secret = 'a-shared-secret-of-at-least-32-characters';
 
     protected static function configureSecret(): void
     {
