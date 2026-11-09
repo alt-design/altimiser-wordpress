@@ -54,3 +54,4 @@ add_action('plugins_loaded', static function (): void {
 });
 
 (new Updater(__FILE__))->register();
+(new AltDesign\Altimiser\StructuredDataPrinter())->register();

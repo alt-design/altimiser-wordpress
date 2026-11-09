@@ -49,8 +49,9 @@ class HealthTest extends ReceiverTestCase
             'link.opportunity',
             'site.robots_missing',
             'sitemap.not_declared_in_robots',
+            'structured_data.missing',
         ], $health['checks']);
-        $this->assertSame(['content.update', 'content.link'], $health['capabilities']);
+        $this->assertSame(['content.update', 'content.draft', 'content.link'], $health['capabilities']);
         $this->assertSame(['installed' => true, 'version' => WPSEO_VERSION], $health['integrations']['yoast']);
     }
 
@@ -66,7 +67,7 @@ class HealthTest extends ReceiverTestCase
         $this->assertContains('title.too_long', $checks);
     }
 
-    public function test_withholds_what_yoast_would_write_without_a_supported_seo_plugin(): void
+    public function test_advertises_only_what_needs_no_seo_plugin_without_one(): void
     {
         $receiver = new AltDesign\Altimiser\Receiver(dirname(__DIR__).'/altimiser.php', null);
 
@@ -79,7 +80,9 @@ class HealthTest extends ReceiverTestCase
             'link.opportunity',
             'site.robots_missing',
             'sitemap.not_declared_in_robots',
+            'structured_data.missing',
         ], $health['checks']);
+        $this->assertSame(['content.update', 'content.draft', 'content.link'], $health['capabilities']);
         $this->assertSame(['installed' => false], $health['integrations']['yoast']);
     }
 

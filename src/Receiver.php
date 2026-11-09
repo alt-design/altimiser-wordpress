@@ -2,6 +2,8 @@
 
 namespace AltDesign\Altimiser;
 
+use InvalidArgumentException;
+use RuntimeException;
 use Throwable;
 use WP_Error;
 use WP_REST_Request;
@@ -25,6 +27,12 @@ class Receiver
         register_rest_route('altimiser/v1', '/changes', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [$this, 'changes'],
+            'permission_callback' => [$this, 'verifySignature'],
+        ]);
+
+        register_rest_route('altimiser/v1', '/drafts', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'drafts'],
             'permission_callback' => [$this, 'verifySignature'],
         ]);
     }
@@ -98,6 +106,9 @@ class Receiver
             'capabilities' => $this->capabilities($checks),
             'checks' => $checks,
             'integrations' => ['yoast' => $this->yoastState()],
+            'collections' => $this->orEmpty(fn (): array => (new Collections())->all()),
+            'globals' => $this->orEmpty(fn (): array => (new Globals())->all()),
+            'variables' => (new PostVariables($this->yoast))->descriptions(),
             'setup' => $this->setup(),
             'site_url' => home_url(),
         ]);
@@ -132,8 +143,27 @@ class Receiver
     {
         return array_keys(array_filter([
             'content.update' => $checks !== [],
+            'content.draft' => true,
             'content.link' => in_array('link.opportunity', $checks, true),
         ]));
+    }
+
+    /**
+     * A failure reading collections or globals leaves the list empty and not the
+     * connection refused.
+     *
+     * @param  callable(): array<int, mixed>  $read
+     * @return array<int, mixed>
+     */
+    private function orEmpty(callable $read): array
+    {
+        try {
+            return $read();
+        } catch (Throwable $exception) {
+            error_log("Altimiser could not read a list for /health: {$exception->getMessage()}");
+
+            return [];
+        }
     }
 
     /**
@@ -185,18 +215,45 @@ class Receiver
     }
 
     /**
+     * An empty body is refused because a signature does not cover the path, so a
+     * signed empty body would otherwise be accepted here for five minutes.
+     */
+    public function drafts(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        try {
+            $draft = DraftRequest::fromPayload(json_decode($request->get_body(), true));
+        } catch (InvalidArgumentException $exception) {
+            return new WP_Error('altimiser_unreadable', $exception->getMessage(), ['status' => 422]);
+        }
+
+        $posts = new DraftPosts(new ContentResolver(), new Collections(), new MarkdownBlocks(), $this->yoast);
+
+        try {
+            return new WP_REST_Response($posts->store($draft));
+        } catch (RuntimeException $exception) {
+            return new WP_Error('altimiser_write_failed', $exception->getMessage(), ['status' => 500]);
+        }
+    }
+
+    /**
      * @return array<int, Applier>
      */
     private function appliers(): array
     {
         $content = new ContentResolver();
         $writer = new ContentWriter();
+        $variables = new PostVariables($this->yoast);
 
         return [
             $this->yoast === null ? new InactiveSeoPlugin() : new YoastApplier($this->yoast, $content),
             new AltTextApplier($content, $writer),
             new LinkApplier($content, new MentionLinker(), $writer),
             new RobotsApplier(),
+            new StructuredDataApplier(
+                new StructuredDataStore(),
+                new StructuredDataRenderer($variables, new Globals(), new Collections()),
+                $content,
+            ),
         ];
     }
 
