@@ -69,7 +69,17 @@ class RobotsApplier implements Applier
             );
         }
 
-        $file = $this->root().'robots.txt';
+        $root = $this->root ?? self::webRoot();
+
+        if ($root === null) {
+            return ChangeResult::skipped(
+                $change->id,
+                'no_field',
+                'WordPress is installed somewhere that does not match the site address, so there is no telling where the root of the site is.',
+            );
+        }
+
+        $file = trailingslashit($root).'robots.txt';
         $existing = is_file($file) ? (string) file_get_contents($file) : null;
 
         return $change->check === 'site.robots_missing'
@@ -207,15 +217,29 @@ class RobotsApplier implements Applier
         return $host($url) === $host(home_url());
     }
 
-    private function root(): string
+    /**
+     * The folder the site is served from. With WordPress in a folder of its own, the
+     * site address ends in that folder and so does ABSPATH. Core's get_home_path()
+     * works it out from the script being run instead, which during a REST request is
+     * the root index.php, so it answers "/".
+     */
+    public static function webRoot(): ?string
     {
-        if ($this->root !== null) {
-            return trailingslashit($this->root);
+        $home = untrailingslashit((string) parse_url(home_url(), PHP_URL_PATH));
+        $site = untrailingslashit((string) parse_url(site_url(), PHP_URL_PATH));
+        $wordPress = untrailingslashit(str_replace('\\', '/', ABSPATH));
+
+        if ($site === $home) {
+            return trailingslashit($wordPress);
         }
 
-        require_once ABSPATH.'wp-admin/includes/file.php';
+        $folder = substr($site, strlen($home));
 
-        return get_home_path();
+        if (! str_starts_with($site, "{$home}/") || ! str_ends_with($wordPress, $folder)) {
+            return null;
+        }
+
+        return trailingslashit(substr($wordPress, 0, -strlen($folder)));
     }
 
     /**

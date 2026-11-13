@@ -129,6 +129,35 @@ class RobotsTest extends ReceiverTestCase
         add_filter('wp_sitemaps_enabled', '__return_false');
     }
 
+    public function test_finds_the_web_root_above_wordpress_in_a_folder_of_its_own(): void
+    {
+        $wordPress = untrailingslashit(ABSPATH);
+        $folder = basename($wordPress);
+
+        $this->assertSame(trailingslashit(ABSPATH), RobotsApplier::webRoot());
+
+        update_option('siteurl', home_url("/{$folder}"));
+
+        $this->assertSame(trailingslashit(dirname($wordPress)), RobotsApplier::webRoot());
+    }
+
+    public function test_refuses_to_guess_where_robots_txt_goes_when_wordpress_is_somewhere_it_cannot_place(): void
+    {
+        update_option('siteurl', home_url('/not-where-wordpress-is'));
+
+        $result = (new RobotsApplier())->apply(ChangeRequest::fromPayload($this->change([
+            'check' => 'site.robots_missing',
+            'url' => home_url('/'),
+            'target' => ['selector' => null, 'attribute' => null],
+            'current_value' => null,
+            'suggested_value' => null,
+        ])), false);
+
+        $this->assertNull(RobotsApplier::webRoot());
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('no_field', $result['reason']);
+    }
+
     /**
      * @return array<string, mixed>
      */
