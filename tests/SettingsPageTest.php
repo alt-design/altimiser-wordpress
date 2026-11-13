@@ -120,6 +120,9 @@ class SettingsPageTest extends WP_UnitTestCase
         set_transient('altimiser_summary', ['summary' => ['awaiting_review' => 1]], 300);
         Connections::put($editor, ['connection' => 'c', 'token' => 't', 'expires_at' => time() + 60, 'account_email' => '']);
         update_option('altimiser_robots_sitemap', 'https://example.org/sitemap.xml');
+        update_option('altimiser_structured_data_defaults', ['post' => '{}']);
+        $postId = self::factory()->post->create();
+        update_post_meta($postId, '_altimiser_structured_data', '{}');
 
         define('WP_UNINSTALL_PLUGIN', 'altimiser/altimiser.php');
         require dirname(__DIR__).'/uninstall.php';
@@ -128,6 +131,8 @@ class SettingsPageTest extends WP_UnitTestCase
         $this->assertFalse(get_transient('altimiser_summary'));
         $this->assertFalse(get_user_option(Connections::$option, $editor));
         $this->assertFalse(get_option('altimiser_robots_sitemap'));
+        $this->assertFalse(get_option('altimiser_structured_data_defaults'));
+        $this->assertSame('', get_post_meta($postId, '_altimiser_structured_data', true));
     }
 
     public function test_shows_nothing_to_someone_who_cannot_manage_options(): void

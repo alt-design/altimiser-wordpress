@@ -2,11 +2,11 @@
 
 Connects a WordPress site to Altimiser. It implements Altimiser's receiver protocol, which is kept with Altimiser itself, and it is held to that document rather than to the [Statamic receiver](https://github.com/alt-design/altimiser-statamic), with which it shares no code.
 
-It applies the changes Altimiser sends to titles, meta descriptions and Open Graph text, by writing to Yoast SEO's own fields. It also writes image alt text, links a page to another it already names, and fixes robots.txt. Without Yoast SEO active a site can still connect and take those three, but `GET /health` advertises none of the Yoast checks, Altimiser reports the gap as `receiver.no_seo_plugin`, and no title, description or social text is changed.
+It applies the changes Altimiser sends to titles, meta descriptions and Open Graph text, by writing to Yoast SEO's own fields. It also writes image alt text, links a page to another it already names, fixes robots.txt, adds structured data, and saves drafts of new pages. Without Yoast SEO active a site can still connect and take all of those, but `GET /health` advertises none of the Yoast checks, Altimiser reports the gap as `receiver.no_seo_plugin`, and no title, description or social text is changed.
 
 ## Requirements
 
-WordPress 6.8 or newer, PHP 8.1 or newer, and Yoast SEO 24.0 or newer for titles, descriptions and Open Graph text. The tests run against Yoast SEO 24.0 as well as the latest release. Advanced Custom Fields is optional: where it is active, links also go into its editor fields. The plugin has no runtime Composer dependencies, because vendor classes in a plugin can collide with another plugin's copies.
+WordPress 6.8 or newer, PHP 8.1 or newer, and Yoast SEO 24.0 or newer for titles, descriptions and Open Graph text. The tests run against Yoast SEO 24.0 as well as the latest release. Advanced Custom Fields is optional: where it is active, links also go into its editor fields, and structured data can use text fields from ACF PRO's options pages. The plugin has no runtime Composer dependencies, because vendor classes in a plugin can collide with another plugin's copies.
 
 ## Installing
 
@@ -51,6 +51,8 @@ Connect again after activating Yoast SEO, so Altimiser reads what the site can n
 
 `GET /health` also reports two settings under `setup`, which Altimiser turns into findings because they stop fixes from counting: **Discourage search engines** under **Settings > Reading**, and plain permalinks.
 
+It reports what structured data and drafts can use as well: `collections`, the public post types with the address pattern of their posts, `globals`, the single line text fields on ACF PRO options pages with their values, leaving out any field whose name or label has key, token, secret or password as a word in it, and `variables`, the names a structured data block can use. Under plain permalinks `collections` is empty.
+
 ## What gets changed
 
 | Checks | Yoast SEO field |
@@ -61,12 +63,15 @@ Connect again after activating Yoast SEO, so Altimiser reads what the site can n
 
 These are written to the post, page, custom post type or taxonomy term the URL belongs to, as long as its type has public pages. A shared template is never edited and a meta title is never written to `post_title`.
 
+`canonical.missing` is not handled. Yoast SEO prints a canonical on every page it lets search engines index, and Altimiser only checks those pages, so a missing canonical means a theme or another plugin has taken Yoast's away. Writing Yoast's canonical field would not bring it back, so that one needs a developer.
+
 | Checks | Where it is written |
 | --- | --- |
 | `image.alt_missing`, `alt_empty`, `alt_too_long` | The image's alt text in the media library, and the page's own copy of it |
 | `link.opportunity` | The first mention in the page's content, or in an ACF editor field |
 | `site.robots_missing` | A new `robots.txt` at the root of the site |
 | `sitemap.not_declared_in_robots` | The `robots.txt` file, or what WordPress prints at `/robots.txt` when there is no file |
+| `structured_data.missing` | A JSON-LD block the plugin prints in the page's head, kept once for a whole post type or on the page itself |
 
 ### Alt text
 
@@ -83,6 +88,12 @@ A revert takes the link off again and restores the words as they were.
 ### robots.txt
 
 A missing `robots.txt` is created with no `Disallow` rules and the site's sitemap, Yoast SEO's where it makes one. A missing sitemap line is added to the file where there is one, and otherwise to what WordPress prints, through the `robots_txt` filter, which keeps the rules WordPress and other plugins print there. Neither is reverted. A site not at the root of its domain has no `robots.txt` of its own, so both are refused there. On a multisite network every site is served from one folder, so a file there would answer for all of them: no file is created or edited, and a sitemap goes only into what WordPress prints for that site. A site set to discourage search engines is not given a file that lets them in. The sitemap address has to be a single http or https address on the site's own host.
+
+### Structured data
+
+The block arrives as a JSON template and is printed in the head of single posts and pages, beside Yoast SEO's own graph. It can use `{{ title }}`, `{{ meta_description }}`, `{{ permalink }}`, `{{ excerpt }}`, `{{ featured_image }}`, `{{ date_published }}`, `{{ date_modified }}`, `{{ author_name }}`, `{{ site_name }}` and `{{ site_url }}`, a text field from an ACF PRO options page as `{{ options-page:field }}`, and one loop over a post type, `{{ collection:handle }}` to `{{ /collection:handle }}`, with `{{ count }}` and `{{ unless last }}` inside it. A loop takes the first 50 posts, by menu order and then newest first, because the block is rendered on every uncached view. Values are escaped for JSON when printed, and a password protected post gives no excerpt or description, since the block is printed for everyone. A post hidden by a membership plugin is still published as far as WordPress is concerned, so on a membership site leave `{{ excerpt }}` and `{{ meta_description }}` out of blocks for members' content.
+
+A block for any post type but pages is kept once, as that type's default, and every post of the type uses it unless it has its own. Later posts of the type are reported as already done, and an existing default is left in place as `default_present`. Pages keep a block each. The `altimiser_structured_data_default_exclusions` filter lists the post types that keep a block per post. A block that does not render to valid JSON for the page prints nothing and is refused as `invalid_markup`.
 
 `canonical.missing` is left to a developer. Yoast SEO prints a canonical itself except on noindex pages, so a missing one points to something else on the site.
 
@@ -101,6 +112,8 @@ A change is refused rather than guessed at, and the finding goes to a person:
 | `mention_not_found` | The words to link are not in the page's content, usually because the theme prints them |
 | `page_builder` | The page is built with Elementor, Beaver Builder, Divi, WPBakery, Avada, Oxygen, Bricks or SiteOrigin, or its content holds another builder's shortcodes. These keep the page in their own data or in shortcode settings, where an edit would be lost or break the layout. Alt text still goes into the media library, which they print |
 | `invalid_change` | A link change arrived without the words to link or where to link them, or pointing off the site, or a sitemap address that is not on the site |
+| `invalid_markup` | A structured data block does not render to valid JSON for the page, usually because it names a variable or global the site does not have |
+| `default_present` | The post type already has a structured data default, which was left in place |
 
 If Yoast SEO is not active when one of its changes arrives, nothing is attempted and the change comes back as `failed` with the reason `seo_plugin_inactive`. That keeps its approval, so it goes out again on the next apply.
 
@@ -108,9 +121,13 @@ A page that inherited from a template goes back to inheriting when the change is
 
 Each request attempts up to 10 changes within 45 seconds and hands the rest back as `deferred`, for Altimiser to send again. The `altimiser_batch_size` and `altimiser_time_budget` filters change those numbers. The time budget is also held to half of `max_execution_time`.
 
+## Drafts
+
+Altimiser can send a new page to `POST /drafts`, and the plugin saves it as a draft for an editor to finish and publish. The Markdown body becomes block markup, with each `[GAP: ...]` left where it is for the editor to fill. The draft goes into the post type Altimiser names, or beside the page it expands, with a slug ending in `-draft`. The meta description goes to Yoast SEO's field where it is active. A new draft belongs to the site's first administrator, or to whichever user ID the `altimiser_draft_author` filter returns. Sending the same idea again rewrites its draft while it is still a draft or pending review and nobody has changed its title or body. A draft an editor has worked on is refused as `edited`, and one that has been published as `already_published`. A signed request has no user, so the draft has no author: set one before publishing, or the byline and `{{ author_name }}` stay empty. Drafts need pretty permalinks, because post types are only offered as destinations with an address.
+
 ## Page caches
 
-A request that applies something, or finds it already in place, purges the pages it changed, once, during the request, after Yoast has rebuilt what the page prints. Alt text written to the media library shows wherever the image does, so that clears the whole cache instead. A dry run never purges anything.
+A request that applies something, or finds it already in place, purges the pages it changed, once, during the request, after Yoast has rebuilt what the page prints. Storing a post type's structured data default, or alt text in the media library, purges the whole cache instead, since every page of that type or showing that image changes. A dry run never purges anything.
 
 | Plugin | What is purged | How it was checked |
 | --- | --- | --- |
@@ -173,7 +190,9 @@ To publish a release, change `Version` in `altimiser.php` on `main`, then push a
 
 ## Uninstalling
 
-Deleting the plugin removes its settings, the counts it keeps and every editor's connection, on every site of a network. Changes it applied are the site's content by then, and stay, except a sitemap declared in the `robots.txt` WordPress prints, which only the plugin printed.
+Deleting the plugin removes its settings, the counts it keeps and every editor's connection, on every site of a network. Changes it applied are the site's content by then, and stay, except a sitemap declared in the `robots.txt` WordPress prints and stored structured data, which only the plugin printed. Drafts stay, and keep the reference that ties them to Altimiser.
+
+Deactivating the plugin stops it printing structured data and the sitemap line in WordPress's `robots.txt` as well, though both come back on reactivation. Until then Altimiser's next scan finds them missing again.
 
 ## When the connection fails
 
