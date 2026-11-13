@@ -124,12 +124,25 @@ class DraftPosts
         return $this->save('wp_insert_post', [
             'post_type' => $postType,
             'post_status' => 'draft',
+            'post_author' => $this->author(),
             'post_title' => $this->title($draft),
             'post_content' => $this->markdown->convert($draft->body),
             'post_name' => $beside === null ? sanitize_title($draft->title) : "{$beside->post_name}-draft",
             'post_parent' => $beside?->post_parent ?? 0,
             'meta_input' => [$this->referenceKey => $draft->reference],
         ]);
+    }
+
+    /**
+     * A signed request has no user, and a draft owned by nobody has no byline once it is
+     * published, so it goes to the first administrator unless altimiser_draft_author
+     * names someone else.
+     */
+    private function author(): int
+    {
+        $administrators = get_users(['role' => 'administrator', 'orderby' => 'ID', 'number' => 1, 'fields' => 'ID']);
+
+        return (int) apply_filters('altimiser_draft_author', (int) ($administrators[0] ?? 0));
     }
 
     private function rewrite(DraftRequest $draft, WP_Post $existing): int

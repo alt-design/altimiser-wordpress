@@ -91,6 +91,25 @@ class DraftsTest extends ReceiverTestCase
         $this->assertSame('Loft conversion costs', $post->post_title);
     }
 
+    public function test_gives_the_draft_to_the_first_administrator_unless_a_filter_names_someone(): void
+    {
+        $first = self::factory()->user->create(['role' => 'administrator']);
+        $editor = self::factory()->user->create(['role' => 'editor']);
+        $firstAdministrator = (int) get_users(['role' => 'administrator', 'orderby' => 'ID', 'number' => 1, 'fields' => 'ID'])[0];
+
+        $this->sendDraft();
+
+        $this->assertSame($firstAdministrator, (int) $this->postFor('idea-42')->post_author);
+        $this->assertLessThanOrEqual($first, $firstAdministrator);
+
+        $chosen = static fn (): int => $editor;
+        add_filter('altimiser_draft_author', $chosen);
+        $this->sendDraft(['reference' => 'idea-43']);
+        remove_filter('altimiser_draft_author', $chosen);
+
+        $this->assertSame($editor, (int) $this->postFor('idea-43')->post_author);
+    }
+
     public function test_builds_the_edit_address_from_the_admin_address(): void
     {
         $response = $this->sendDraft();
