@@ -138,9 +138,13 @@ This is optional. Add Altimiser's address on **Settings > Altimiser**, or in `wp
 define('ALTIMISER_URL', 'https://altimiser.example.com');
 ```
 
-The address has to start with `https://`, except for `localhost` or a `.test` address on a development machine. The page shows the queue in a frame that fills the space beside the menu. Altimiser only allows framing by the origin of the site's URL, so the queue will not load for an admin served from another origin, or in a browser that refuses the frame. The frame's link is signed on the server, carries the email address of whoever is signed in, which is who an approval gets recorded against, and expires. Reloading the page gets a new one.
+The address has to start with `https://`, except for `localhost` or a `.test` address on a development machine.
 
-The menu item shows how many changes are waiting for review. The dashboard widget shows the same, along with how many approved changes are waiting to be applied and how many of the site's open findings Altimiser can fix here. The counts are kept for five minutes, so they can lag behind the queue. Altimiser is given two seconds to answer, and only one admin page asks at a time. If it cannot be reached the counts are left out, and it is not asked again for five minutes.
+Each editor connects their own Altimiser account once, from that page. **Connect** opens Altimiser, which asks them to sign in and to approve the connection, then sends them back. Altimiser decides what they can do in the queue from their account, so an editor without an account, or whose account has not been given the site, gets no further than the **Connect** button. A connection lasts twelve hours for an agency account and thirty days for a client account, after which the page offers to connect again. **Disconnect** forgets it straight away. Connecting needs wp-admin to be on the same address as the site's URL.
+
+Once connected, the page shows the queue in a frame that fills the space beside the menu. Altimiser only allows framing by the origin of the site's URL, so the queue will not load for an admin served from another origin, or in a browser that refuses the frame. The frame's link is signed on the server with the site secret and with the editor's connection, and expires. Reloading the page gets a new one.
+
+The menu item shows how many changes are waiting for review, to an editor who has connected. The dashboard widget shows the same, along with how many approved changes are waiting to be applied and how many of the site's open findings Altimiser can fix here. The counts are kept for five minutes, so they can lag behind the queue. Altimiser is given two seconds to answer, and only one admin page asks at a time. If it cannot be reached the counts are left out, and it is not asked again for five minutes.
 
 Two more constants are available:
 
@@ -155,7 +159,7 @@ The plugin sends nothing on its own. Altimiser scans the site's public pages fro
 
 Altimiser sends the site the changes that were approved: page addresses, the values the scan saw, and the values to write. The site answers with what it did.
 
-With the review queue switched on, the site asks Altimiser for its counts, naming only the site. The frame's link carries the signed in editor's email address to Altimiser, because approvals are recorded against it. Tell the client this before switching it on.
+With the review queue switched on, the site asks Altimiser for its counts, naming only the site. Connecting and the frame's link carry the signed in editor's email address to Altimiser, which shows it when they connect and keeps it with the connection. Approvals are recorded against the Altimiser account. The token Altimiser hands back is kept against the editor in the database, encrypted with a key drawn from the salts in `wp-config.php`, and never reaches the browser. Tell the client this before switching it on.
 
 Refused requests that carried a signature, and changes that could not be written, are logged to PHP's error log, which is `wp-content/debug.log` when `WP_DEBUG_LOG` is on. The log names the route or the page address, and holds no secrets or personal data.
 
@@ -165,11 +169,11 @@ WordPress's own updater offers new versions, from the latest release on GitHub. 
 
 A site that keeps its plugins in git should commit the update instead, or the next deploy puts the old version back.
 
-To publish a release, change `Version` in `altimiser.php` on `main`, then push a tag naming that version, such as `v0.2.0`. The release workflow runs the tests, checks that the tag is on `main` and matches the version, and only then builds `altimiser.zip` and publishes it. The updater trusts the latest release, so keep the ability to push tags to people who need it.
+To publish a release, change `Version` in `altimiser.php` on `main`, then push a tag naming that version, such as `v0.2.0`. The release workflow runs the tests, checks that the tag is on `main` and matches the version, and only then builds `altimiser.zip` and publishes it. A ruleset lets only repository admins create a `v` tag and stops anyone moving or deleting one, and published releases are immutable, so the zip of a release cannot be swapped once it is out. The updater trusts the latest release, so keep admin access to the repository to people who need it.
 
 ## Uninstalling
 
-Deleting the plugin removes its settings and the counts it keeps, on every site of a network. Changes it applied are the site's content by then, and stay, except a sitemap declared in the `robots.txt` WordPress prints, which only the plugin printed.
+Deleting the plugin removes its settings, the counts it keeps and every editor's connection, on every site of a network. Changes it applied are the site's content by then, and stay, except a sitemap declared in the `robots.txt` WordPress prints, which only the plugin printed.
 
 ## When the connection fails
 

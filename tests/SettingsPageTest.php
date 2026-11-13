@@ -1,5 +1,6 @@
 <?php
 
+use AltDesign\Altimiser\Connections;
 use AltDesign\Altimiser\Settings;
 use AltDesign\Altimiser\SettingsPage;
 
@@ -112,10 +113,12 @@ class SettingsPageTest extends WP_UnitTestCase
         $this->assertStringContainsString(esc_html(rest_url('altimiser/v1')), $this->rendered());
     }
 
-    public function test_uninstalling_removes_the_settings_and_the_kept_count(): void
+    public function test_uninstalling_removes_the_settings_the_kept_count_and_every_connection(): void
     {
+        $editor = self::factory()->user->create(['role' => 'editor']);
         update_option(Settings::$option, ['secret' => $this->longSecret]);
         set_transient('altimiser_summary', ['summary' => ['awaiting_review' => 1]], 300);
+        Connections::put($editor, ['connection' => 'c', 'token' => 't', 'expires_at' => time() + 60, 'account_email' => '']);
         update_option('altimiser_robots_sitemap', 'https://example.org/sitemap.xml');
 
         define('WP_UNINSTALL_PLUGIN', 'altimiser/altimiser.php');
@@ -123,6 +126,7 @@ class SettingsPageTest extends WP_UnitTestCase
 
         $this->assertFalse(get_option(Settings::$option));
         $this->assertFalse(get_transient('altimiser_summary'));
+        $this->assertFalse(get_user_option(Connections::$option, $editor));
         $this->assertFalse(get_option('altimiser_robots_sitemap'));
     }
 

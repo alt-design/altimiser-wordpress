@@ -13,6 +13,7 @@
  * Text Domain: altimiser
  */
 
+use AltDesign\Altimiser\ConnectionFlow;
 use AltDesign\Altimiser\ControlPanel;
 use AltDesign\Altimiser\Receiver;
 use AltDesign\Altimiser\ReviewQueuePage;
@@ -50,6 +51,7 @@ add_action('plugins_loaded', static function (): void {
 
     if ($controlPanel !== null) {
         (new ReviewQueuePage($controlPanel))->register();
+        (new ConnectionFlow($controlPanel))->register();
     }
 });
 
