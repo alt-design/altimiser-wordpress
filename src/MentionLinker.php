@@ -82,9 +82,50 @@ class MentionLinker
     private function expression(string $anchor): string
     {
         $words = preg_split('/\s+/u', trim($anchor)) ?: [];
-        $quoted = implode('(?:[\s\x{00A0}]|&nbsp;)+', array_map(static fn (string $word): string => preg_quote($word, '/'), $words));
+        $quoted = implode('(?:[\s\x{00A0}]|&nbsp;|&#0*160;)+', array_map($this->word(...), $words));
 
         return "(?<![\p{L}\p{N}]){$quoted}(?![\p{L}\p{N}])";
+    }
+
+    /**
+     * The scan reads the page as printed, but the content is stored as typed: an
+     * ampersand as &amp; or &#038;, and a straight quote or hyphen that wptexturize()
+     * prints curly or as a dash. Any character but a letter or digit matches each of
+     * those forms.
+     */
+    private function word(string $word): string
+    {
+        return implode('', array_map(
+            fn (string $character): string => preg_match('/[\p{L}\p{N}]/u', $character) === 1
+                ? preg_quote($character, '/')
+                : '(?:'.implode('|', $this->forms($character)).')',
+            mb_str_split($word),
+        ));
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function forms(string $character): array
+    {
+        $alike = array_values(array_filter(
+            [["'", '’', '‘'], ['"', '“', '”'], ['-', '–', '—']],
+            static fn (array $group): bool => in_array($character, $group, true),
+        ))[0] ?? [$character];
+
+        $forms = [];
+
+        foreach ($alike as $one) {
+            $named = htmlentities($one, ENT_QUOTES | ENT_HTML5);
+            $forms[] = preg_quote($one, '/');
+            $forms[] = sprintf('&#0*%d;|&#x0*%x;', mb_ord($one), mb_ord($one));
+
+            if ($named !== $one) {
+                $forms[] = preg_quote($named, '/');
+            }
+        }
+
+        return $forms;
     }
 
     /**

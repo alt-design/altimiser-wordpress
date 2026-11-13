@@ -129,6 +129,25 @@ class LinkTest extends ReceiverTestCase
         );
     }
 
+    public function test_finds_a_mention_stored_with_entities_or_typed_with_straight_quotes(): void
+    {
+        $this->setContent("<p>Read our Terms &amp; Conditions and the children's guide.</p>");
+        $mentionOf = static fn (string $anchor, string $href): array => [
+            'target' => ['selector' => "a[href=\"{$href}\"]", 'attribute' => 'href', 'anchor' => $anchor, 'href' => $href],
+            'current_value' => $anchor,
+            'suggested_value' => home_url($href),
+        ];
+
+        $terms = $this->sendLink($mentionOf('Terms & Conditions', '/terms'));
+        $guide = $this->sendLink($mentionOf('children’s guide', '/guide'));
+
+        $this->assertSame(['applied', 'applied'], [$terms['status'], $guide['status']]);
+        $this->assertSame(
+            "<p>Read our <a href=\"/terms\">Terms &amp; Conditions</a> and the <a href=\"/guide\">children's guide</a>.</p>",
+            get_post($this->pageId)->post_content,
+        );
+    }
+
     public function test_counts_a_link_written_inside_an_acf_group_as_written(): void
     {
         $this->setContent('<p>Nothing about covenants here.</p>');
