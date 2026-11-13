@@ -1,5 +1,7 @@
 <?php
 
+use AltDesign\Altimiser\Connections;
+use AltDesign\Altimiser\ConnectionFlow;
 use AltDesign\Altimiser\ControlPanel;
 use AltDesign\Altimiser\ReviewQueuePage;
 
@@ -33,13 +35,27 @@ class ReviewQueuePageTest extends WP_UnitTestCase
         parent::tear_down();
     }
 
-    private function signInAs(string $role): WP_User
+    private function signInAs(string $role, bool $connected = true): WP_User
     {
         $user = self::factory()->user->create_and_get(['role' => $role, 'user_email' => "{$role}@example.com"]);
 
         wp_set_current_user($user->ID);
 
+        if ($connected) {
+            $this->connect($user, time() + HOUR_IN_SECONDS);
+        }
+
         return $user;
+    }
+
+    private function connect(WP_User $user, int $expiresAt): void
+    {
+        Connections::put($user->ID, [
+            'connection' => '01jcz6r4s8x2m0v3q9k7t5w1yd',
+            'token' => str_repeat('ab', 32),
+            'expires_at' => $expiresAt,
+            'account_email' => 'sam@agency.example',
+        ]);
     }
 
     private function altimiserCounts(int|WP_Error $count): void
@@ -186,14 +202,15 @@ class ReviewQueuePageTest extends WP_UnitTestCase
 
         $html = html_entity_decode($this->renderedPage(), ENT_QUOTES);
 
-        preg_match('/<iframe src="([^"]+)"/', $html, $frame);
+        preg_match('/<iframe[^>]* src="([^"]+)"/', $html, $frame);
 
         $this->assertStringContainsString('user=editor%40example.com', $frame[1]);
         $this->assertStringContainsString('embedded=1', $frame[1]);
-        $this->assertSignedWithTheSharedSecret($frame[1]);
+        $this->assertStringContainsString('connection=01jcz6r4s8x2m0v3q9k7t5w1yd', $frame[1]);
+        $this->assertSignedWithTheSecretAndTheToken($frame[1]);
     }
 
-    public function test_shows_only_the_frame(): void
+    public function test_shows_no_heading_or_link_around_the_frame(): void
     {
         $this->signInAs('editor');
 
@@ -203,18 +220,75 @@ class ReviewQueuePageTest extends WP_UnitTestCase
         $this->assertStringNotContainsString('<a ', $html);
     }
 
-    private function assertSignedWithTheSharedSecret(string $link): void
+    private function assertSignedWithTheSecretAndTheToken(string $link): void
     {
-        [$signed, $signature] = explode('&signature=', $link);
+        preg_match('/^(.+)&signature=(\w+)&connection_signature=(\w+)$/', $link, $parts);
 
-        $this->assertSame(hash_hmac('sha256', $signed, 'shared-secret'), $signature);
+        $this->assertSame(hash_hmac('sha256', $parts[1], 'shared-secret'), $parts[2]);
+        $this->assertSame(hash_hmac('sha256', $parts[1], str_repeat('ab', 32)), $parts[3]);
     }
 
     public function test_sends_the_browser_nothing_that_could_sign_another_link(): void
     {
         $this->signInAs('editor');
 
-        $this->assertStringNotContainsString('shared-secret', $this->renderedPage());
+        $html = $this->renderedPage();
+
+        $this->assertStringNotContainsString('shared-secret', $html);
+        $this->assertStringNotContainsString(str_repeat('ab', 32), $html);
+    }
+
+    public function test_says_who_is_connected_and_offers_to_disconnect(): void
+    {
+        $this->signInAs('editor');
+
+        $html = $this->renderedPage();
+
+        $this->assertStringContainsString('Connected as sam@agency.example until', $html);
+        $this->assertStringContainsString('name="action" value="altimiser_disconnect"', $html);
+        $this->assertStringContainsString('name="_wpnonce"', $html);
+    }
+
+    public function test_offers_to_connect_an_editor_who_has_not_and_frames_nothing(): void
+    {
+        $this->signInAs('editor', connected: false);
+
+        $html = html_entity_decode($this->renderedPage(), ENT_QUOTES);
+
+        $this->assertStringContainsString('Connect your Altimiser account', $html);
+        $this->assertMatchesRegularExpression('#href="[^"]+/wp-admin/admin-post\.php\?action=altimiser_connect&_wpnonce=\w+"#', $html);
+        $this->assertStringNotContainsString('<iframe', $html);
+    }
+
+    public function test_offers_to_connect_again_once_the_connection_has_expired(): void
+    {
+        $user = $this->signInAs('editor', connected: false);
+        $this->connect($user, time() - 1);
+
+        $this->assertStringContainsString('Connect your Altimiser account', $this->renderedPage());
+    }
+
+    public function test_shows_what_the_last_connection_step_said_once(): void
+    {
+        $this->signInAs('editor');
+        set_transient('altimiser_notice_'.get_current_user_id(), ['level' => 'success', 'message' => 'Your Altimiser account is connected.'], MINUTE_IN_SECONDS);
+
+        $this->assertStringContainsString('<div class="notice notice-success inline"><p>Your Altimiser account is connected.</p></div>', $this->renderedPage());
+        $this->assertNull(ConnectionFlow::takeNotice());
+    }
+
+    public function test_shows_no_count_and_asks_nothing_until_the_editor_connects(): void
+    {
+        $this->altimiserCounts(12);
+        $this->signInAs('editor', connected: false);
+
+        $this->page->addMenuItem();
+        $widget = $this->renderedWidget();
+
+        $this->assertSame('Altimiser', $this->menuLabel());
+        $this->assertStringContainsString('Connect your Altimiser account to see what is waiting for review.', $widget);
+        $this->assertStringContainsString('admin.php?page=altimiser', $widget);
+        $this->assertSame(0, $this->requests);
     }
 
     public function test_adds_a_dashboard_widget_for_someone_who_reviews(): void
@@ -254,5 +328,42 @@ class ReviewQueuePageTest extends WP_UnitTestCase
             'several' => [12, '12 changes are waiting for review.'],
             'unreachable' => [new WP_Error('http_request_failed', 'Connection timed out'), 'The count is not available right now'],
         ];
+    }
+
+    public function test_says_what_is_approved_and_what_altimiser_can_fix_in_the_widget(): void
+    {
+        add_filter('pre_http_request', static fn (): array => [
+            'headers' => [],
+            'body' => wp_json_encode(['outstanding' => 42, 'handled' => 30, 'pending' => 3, 'awaiting_review' => 12, 'last_scanned_at' => '2026-11-02T03:00:12.000000Z']),
+            'response' => ['code' => 200, 'message' => ''],
+            'cookies' => [],
+            'filename' => null,
+        ]);
+        $this->signInAs('editor');
+
+        $widget = $this->renderedWidget();
+
+        $this->assertStringContainsString('3 approved changes are waiting to be applied.', $widget);
+        $this->assertStringContainsString('Altimiser can apply fixes for 30 of the 42 open findings on this site.', $widget);
+    }
+
+    public function test_leaves_out_counts_that_are_zero(): void
+    {
+        $this->altimiserCounts(0);
+        $this->signInAs('editor');
+
+        $this->assertStringNotContainsString('<ul>', $this->renderedWidget());
+    }
+
+    public function test_styles_only_its_own_page(): void
+    {
+        $this->page->addStyles('index.php');
+
+        $this->assertFalse(wp_style_is('altimiser-review-queue'));
+
+        $this->page->addStyles('toplevel_page_altimiser');
+
+        $this->assertTrue(wp_style_is('altimiser-review-queue'));
+        $this->assertStringContainsString('.altimiser-review-queue{', implode('', wp_styles()->get_data('altimiser-review-queue', 'after')));
     }
 }

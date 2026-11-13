@@ -6,6 +6,8 @@ require_once "{$pluginDirectory}/vendor/autoload.php";
 
 putenv('WP_PHPUNIT__TESTS_CONFIG='.__DIR__.'/wp-tests-config.php');
 
+ini_set('error_log', sys_get_temp_dir().'/altimiser-tests.log');
+
 $wordPressTests = getenv('WP_PHPUNIT__DIR');
 
 require_once "{$wordPressTests}/includes/functions.php";

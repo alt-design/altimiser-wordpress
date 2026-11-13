@@ -24,11 +24,11 @@ class PageCacheTest extends ReceiverTestCase
 
     private function purges(callable $request): int
     {
-        $before = did_action('litespeed_purge_all');
+        $before = did_action('altimiser_purge_urls');
 
         $request();
 
-        return did_action('litespeed_purge_all') - $before;
+        return did_action('altimiser_purge_urls') - $before;
     }
 
     private function descriptionYoastPrints(): ?string
@@ -49,11 +49,11 @@ class PageCacheTest extends ReceiverTestCase
             $printedAtPurge = $this->descriptionYoastPrints();
         };
 
-        add_action('litespeed_purge_all', $recordWhatIsPrinted);
+        add_action('litespeed_purge_url', $recordWhatIsPrinted);
 
         $this->sendOne();
 
-        remove_action('litespeed_purge_all', $recordWhatIsPrinted);
+        remove_action('litespeed_purge_url', $recordWhatIsPrinted);
 
         $this->assertSame('How our studio works, and who we build for.', $printedAtPurge);
     }
@@ -104,16 +104,67 @@ class PageCacheTest extends ReceiverTestCase
      *
      * @preserveGlobalState disabled
      */
-    public function test_reaches_each_plugin_that_is_active(): void
+    public function test_reaches_each_plugin_that_is_active_by_address(): void
     {
         require __DIR__.'/fixtures/page-cache-plugins.php';
 
+        $page = home_url('/about/');
         $beforeBreeze = did_action('breeze_clear_all_cache');
+        $beforeLiteSpeed = did_action('litespeed_purge_url');
 
-        (new AltDesign\Altimiser\PageCache())->purge();
+        (new AltDesign\Altimiser\PageCache())->purge([$page, $page]);
+
+        $this->assertSame([['rocket', [$page]], ['w3tc', $page], ['super-cache', $page]], $GLOBALS['altimiser_purged']);
+        $this->assertSame($beforeLiteSpeed + 1, did_action('litespeed_purge_url'));
+        $this->assertSame($beforeBreeze + 1, did_action('breeze_clear_all_cache'));
+    }
+
+    /**
+     * @runInSeparateProcess
+     *
+     * @preserveGlobalState disabled
+     */
+    public function test_clears_wp_super_cache_whole_for_the_home_page_it_will_not_delete_by_address(): void
+    {
+        require __DIR__.'/fixtures/page-cache-plugins.php';
+
+        (new AltDesign\Altimiser\PageCache())->purge([home_url('/')]);
+
+        $this->assertContains('super-cache', $GLOBALS['altimiser_purged']);
+    }
+
+    /**
+     * @runInSeparateProcess
+     *
+     * @preserveGlobalState disabled
+     */
+    public function test_clears_everything_on_request(): void
+    {
+        require __DIR__.'/fixtures/page-cache-plugins.php';
+
+        $beforeLiteSpeed = did_action('litespeed_purge_all');
+
+        (new AltDesign\Altimiser\PageCache())->purgeEverything();
 
         $this->assertSame(['rocket', 'w3tc', 'super-cache'], $GLOBALS['altimiser_purged']);
-        $this->assertSame($beforeBreeze + 1, did_action('breeze_clear_all_cache'));
+        $this->assertSame($beforeLiteSpeed + 1, did_action('litespeed_purge_all'));
+    }
+
+    public function test_purges_only_the_page_the_change_was_made_for(): void
+    {
+        $purged = [];
+
+        $record = static function (array $urls, bool $everything) use (&$purged): void {
+            $purged[] = [$urls, $everything];
+        };
+
+        add_action('altimiser_purge_urls', $record, 10, 2);
+
+        $this->sendOne();
+
+        remove_action('altimiser_purge_urls', $record);
+
+        $this->assertSame([[[home_url('/about/')], false]], $purged);
     }
 
     public function test_reports_success_even_when_the_purge_fails_because_the_changes_have_landed(): void
@@ -122,14 +173,38 @@ class PageCacheTest extends ReceiverTestCase
             throw new RuntimeException('The cache directory is read only.');
         };
 
-        add_action('litespeed_purge_all', $failing);
+        add_action('litespeed_purge_url', $failing);
 
         $logged = ini_set('error_log', '/dev/null');
         $result = $this->sendOne();
 
         ini_set('error_log', (string) $logged);
-        remove_action('litespeed_purge_all', $failing);
+        remove_action('litespeed_purge_url', $failing);
 
         $this->assertSame('applied', $result['status']);
+    }
+
+    public function test_still_reaches_the_other_caches_when_one_of_them_throws(): void
+    {
+        $failing = static function (): void {
+            throw new RuntimeException('The cache directory is read only.');
+        };
+
+        add_action('litespeed_purge_url', $failing);
+        add_action('litespeed_purge_all', $failing);
+
+        $logged = ini_set('error_log', '/dev/null');
+        $beforeBreeze = did_action('breeze_clear_all_cache');
+        $beforeOwn = did_action('altimiser_purge_urls');
+
+        (new AltDesign\Altimiser\PageCache())->purge([home_url('/about/')]);
+        (new AltDesign\Altimiser\PageCache())->purgeEverything();
+
+        ini_set('error_log', (string) $logged);
+        remove_action('litespeed_purge_url', $failing);
+        remove_action('litespeed_purge_all', $failing);
+
+        $this->assertSame($beforeBreeze + 2, did_action('breeze_clear_all_cache'));
+        $this->assertSame($beforeOwn + 2, did_action('altimiser_purge_urls'));
     }
 }
