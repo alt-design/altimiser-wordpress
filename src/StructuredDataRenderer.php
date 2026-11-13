@@ -51,7 +51,7 @@ class StructuredDataRenderer
      * A single pass, so a value that itself holds {{ title }} is printed as text
      * and not run again.
      *
-     * @param  array<string, string>  $values
+     * @param  array<string, callable(): string>  $values
      * @param  ?array{count: int, last: bool}  $position
      */
     private function expand(string $template, array $values, ?array $position, bool &$failed): string
@@ -110,7 +110,7 @@ class StructuredDataRenderer
     }
 
     /**
-     * @param  array<string, string>  $values
+     * @param  array<string, callable(): string>  $values
      * @param  ?array{count: int, last: bool}  $position
      */
     private function value(string $name, string $field, array $values, ?array $position, bool &$failed): string
@@ -132,7 +132,7 @@ class StructuredDataRenderer
             return '';
         }
 
-        return $this->escape($values[$name]);
+        return $this->escape($values[$name]());
     }
 
     private function escape(string $value): string

@@ -34,21 +34,24 @@ class PostVariables
     }
 
     /**
-     * @return array<string, string>
+     * Each value is worked out only when a block names it, because a loop asks this for
+     * up to 50 posts on every page view the cache does not answer.
+     *
+     * @return array<string, callable(): string>
      */
     public function for(WP_Post $post): array
     {
         return [
-            'title' => $this->plain($post->post_title),
-            'meta_description' => $this->metaDescription($post),
-            'permalink' => (string) get_permalink($post),
-            'excerpt' => $this->excerpt($post),
-            'featured_image' => (string) get_the_post_thumbnail_url($post, 'full'),
-            'date_published' => (string) get_post_time('c', false, $post),
-            'date_modified' => (string) get_post_modified_time('c', false, $post),
-            'author_name' => (string) get_the_author_meta('display_name', (int) $post->post_author),
-            'site_name' => get_bloginfo('name'),
-            'site_url' => home_url(),
+            'title' => fn (): string => $this->plain($post->post_title),
+            'meta_description' => fn (): string => $this->metaDescription($post),
+            'permalink' => static fn (): string => (string) get_permalink($post),
+            'excerpt' => fn (): string => $this->excerpt($post),
+            'featured_image' => static fn (): string => (string) get_the_post_thumbnail_url($post, 'full'),
+            'date_published' => static fn (): string => (string) get_post_time('c', false, $post),
+            'date_modified' => static fn (): string => (string) get_post_modified_time('c', false, $post),
+            'author_name' => static fn (): string => (string) get_the_author_meta('display_name', (int) $post->post_author),
+            'site_name' => static fn (): string => get_bloginfo('name'),
+            'site_url' => static fn (): string => home_url(),
         ];
     }
 

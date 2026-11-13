@@ -437,6 +437,26 @@ JSON);
         $this->assertCount(50, $this->printed($listPage)['items']);
     }
 
+    public function test_works_out_only_the_variables_a_block_names(): void
+    {
+        $listPage = $this->createPost(['post_type' => 'page', 'post_name' => 'blog-index']);
+        self::factory()->post->create_many(5, ['post_status' => 'publish', 'post_excerpt' => '']);
+        $this->applyBlock($listPage, '{"items": [{{ collection:post }}"{{ title }}"{{ unless last }},{{ /unless }}{{ /collection:post }}]}');
+
+        $trimmed = 0;
+        $count = static function (string $text) use (&$trimmed): string {
+            $trimmed++;
+
+            return $text;
+        };
+
+        add_filter('wp_trim_words', $count);
+        $this->printed($listPage);
+        remove_filter('wp_trim_words', $count);
+
+        $this->assertSame(0, $trimmed);
+    }
+
     public function test_refuses_a_loop_inside_a_loop(): void
     {
         $listPage = $this->createPost(['post_type' => 'page', 'post_name' => 'nested']);
