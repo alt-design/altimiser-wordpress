@@ -27,11 +27,14 @@ class PageCache
             return;
         }
 
-        try {
-            $this->purgeAddresses($urls);
-        } catch (Throwable $exception) {
-            error_log("Altimiser could not purge the page cache: {$exception->getMessage()}");
-        }
+        $this->eachQuietly([
+            static fn () => function_exists('rocket_clean_files') && rocket_clean_files($urls),
+            static fn () => function_exists('w3tc_flush_url') && array_map('w3tc_flush_url', $urls),
+            static fn () => self::purgeSuperCache($urls),
+            static fn () => array_map(static fn (string $url) => do_action('litespeed_purge_url', $url), $urls),
+            static fn () => do_action('breeze_clear_all_cache'),
+            static fn () => do_action('altimiser_purge_urls', $urls, false),
+        ]);
     }
 
     /**
@@ -39,24 +42,29 @@ class PageCache
      */
     public function purgeEverything(): void
     {
-        try {
-            if (function_exists('rocket_clean_domain')) {
-                rocket_clean_domain();
-            }
+        $this->eachQuietly([
+            static fn () => function_exists('rocket_clean_domain') && rocket_clean_domain(),
+            static fn () => function_exists('w3tc_flush_all') && w3tc_flush_all(),
+            static fn () => function_exists('wp_cache_clear_cache') && wp_cache_clear_cache(),
+            static fn () => do_action('litespeed_purge_all'),
+            static fn () => do_action('breeze_clear_all_cache'),
+            static fn () => do_action('altimiser_purge_urls', [home_url('/')], true),
+        ]);
+    }
 
-            if (function_exists('w3tc_flush_all')) {
-                w3tc_flush_all();
+    /**
+     * One cache plugin failing is no reason to leave the others holding the old page.
+     *
+     * @param  array<int, callable>  $purges
+     */
+    private function eachQuietly(array $purges): void
+    {
+        foreach ($purges as $purge) {
+            try {
+                $purge();
+            } catch (Throwable $exception) {
+                error_log("Altimiser could not purge the page cache: {$exception->getMessage()}");
             }
-
-            if (function_exists('wp_cache_clear_cache')) {
-                wp_cache_clear_cache();
-            }
-
-            do_action('litespeed_purge_all');
-            do_action('breeze_clear_all_cache');
-            do_action('altimiser_purge_urls', [home_url('/')], true);
-        } catch (Throwable $exception) {
-            error_log("Altimiser could not purge the page cache: {$exception->getMessage()}");
         }
     }
 
@@ -66,25 +74,10 @@ class PageCache
      *
      * @param  array<int, string>  $urls
      */
-    private function purgeAddresses(array $urls): void
+    private static function purgeSuperCache(array $urls): void
     {
-        if (function_exists('rocket_clean_files')) {
-            rocket_clean_files($urls);
-        }
-
-        if (function_exists('w3tc_flush_url')) {
-            array_map('w3tc_flush_url', $urls);
-        }
-
         if (function_exists('wpsc_delete_url_cache') && in_array(false, array_map('wpsc_delete_url_cache', $urls), true)) {
             wp_cache_clear_cache();
         }
-
-        foreach ($urls as $url) {
-            do_action('litespeed_purge_url', $url);
-        }
-
-        do_action('breeze_clear_all_cache');
-        do_action('altimiser_purge_urls', $urls, false);
     }
 }

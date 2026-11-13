@@ -183,4 +183,28 @@ class PageCacheTest extends ReceiverTestCase
 
         $this->assertSame('applied', $result['status']);
     }
+
+    public function test_still_reaches_the_other_caches_when_one_of_them_throws(): void
+    {
+        $failing = static function (): void {
+            throw new RuntimeException('The cache directory is read only.');
+        };
+
+        add_action('litespeed_purge_url', $failing);
+        add_action('litespeed_purge_all', $failing);
+
+        $logged = ini_set('error_log', '/dev/null');
+        $beforeBreeze = did_action('breeze_clear_all_cache');
+        $beforeOwn = did_action('altimiser_purge_urls');
+
+        (new AltDesign\Altimiser\PageCache())->purge([home_url('/about/')]);
+        (new AltDesign\Altimiser\PageCache())->purgeEverything();
+
+        ini_set('error_log', (string) $logged);
+        remove_action('litespeed_purge_url', $failing);
+        remove_action('litespeed_purge_all', $failing);
+
+        $this->assertSame($beforeBreeze + 2, did_action('breeze_clear_all_cache'));
+        $this->assertSame($beforeOwn + 2, did_action('altimiser_purge_urls'));
+    }
 }
