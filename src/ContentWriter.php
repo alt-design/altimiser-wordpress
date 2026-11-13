@@ -29,11 +29,34 @@ class ContentWriter
     }
 
     /**
-     * ACF unslashes on save as WordPress does, expecting what a form posts.
+     * ACF unslashes on save as WordPress does, expecting what a form posts. It answers
+     * false for a group or flexible content field whose sub fields were saved, because
+     * the parent's own stored value did not change, so what was written is read back.
      */
     public function updateField(string $fieldKey, mixed $value, int $postId): bool
     {
-        return (bool) update_field($fieldKey, wp_slash($value), $postId);
+        return update_field($fieldKey, wp_slash($value), $postId)
+            || $this->leaves(get_field($fieldKey, $postId, false)) === $this->leaves($value);
+    }
+
+    /**
+     * Rows read back may be keyed by field key where they were written by name, so only
+     * the values are compared.
+     *
+     * @return array<int, string>
+     */
+    private function leaves(mixed $value): array
+    {
+        $leaves = [];
+        $value = is_array($value) ? $value : [$value];
+
+        array_walk_recursive($value, static function (mixed $leaf) use (&$leaves): void {
+            $leaves[] = (string) $leaf;
+        });
+
+        sort($leaves);
+
+        return $leaves;
     }
 
     /**

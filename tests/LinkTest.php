@@ -129,6 +129,32 @@ class LinkTest extends ReceiverTestCase
         );
     }
 
+    public function test_counts_a_link_written_inside_an_acf_group_as_written(): void
+    {
+        $this->setContent('<p>Nothing about covenants here.</p>');
+        acf_add_local_field_group([
+            'key' => 'group_altimiser_intro',
+            'title' => 'Introduction',
+            'fields' => [[
+                'key' => 'field_altimiser_intro',
+                'name' => 'intro',
+                'type' => 'group',
+                'sub_fields' => [['key' => 'field_altimiser_intro_text', 'name' => 'text', 'type' => 'wysiwyg']],
+            ]],
+            'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]],
+        ]);
+        update_field('field_altimiser_intro', ['field_altimiser_intro_text' => '<p>The restrictive covenant clause, explained.</p>'], $this->pageId);
+
+        $result = $this->sendLink();
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('intro', $result['location']['field']);
+        $this->assertSame(
+            '<p><a href="/insights/restrictive-covenant-clause">The restrictive covenant clause</a>, explained.</p>',
+            get_field('intro', $this->pageId, false)['field_altimiser_intro_text'],
+        );
+    }
+
     public function test_leaves_a_page_built_with_elementor_alone(): void
     {
         update_post_meta($this->pageId, '_elementor_edit_mode', 'builder');
