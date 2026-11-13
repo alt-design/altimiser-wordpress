@@ -4,7 +4,7 @@ namespace AltDesign\Altimiser;
 
 class ReviewQueuePage
 {
-    private string $capability = 'edit_others_posts';
+    public static string $capability = 'edit_others_posts';
 
     public function __construct(private ControlPanel $panel) {}
 
@@ -17,14 +17,14 @@ class ReviewQueuePage
 
     public function addMenuItem(): void
     {
-        if (! current_user_can($this->capability)) {
+        if (! current_user_can(self::$capability)) {
             return;
         }
 
         add_menu_page(
             __('Altimiser', 'altimiser'),
             __('Altimiser', 'altimiser').$this->badge(),
-            $this->capability,
+            self::$capability,
             'altimiser',
             [$this, 'render'],
             $this->icon(),
@@ -48,7 +48,7 @@ class ReviewQueuePage
 
     public function addDashboardWidget(): void
     {
-        if (! current_user_can($this->capability)) {
+        if (! current_user_can(self::$capability)) {
             return;
         }
 
@@ -70,22 +70,84 @@ class ReviewQueuePage
         wp_add_inline_style(
             'altimiser-review-queue',
             '.wp-admin #wpcontent{padding:0}#wpbody-content{padding-bottom:0}#wpfooter{display:none}'
-            .'.altimiser-review-queue{display:block;width:100%;height:calc(100vh - var(--wp-admin--admin-bar--height,32px));border:0}',
+            .'.altimiser-layout{display:flex;flex-direction:column;height:calc(100vh - var(--wp-admin--admin-bar--height,32px))}'
+            .'.altimiser-layout .notice{margin:12px}'
+            .'.altimiser-connection{padding:6px 12px}.altimiser-connection form{display:inline}'
+            .'.altimiser-connect{max-width:32rem;margin:4rem auto;padding:0 20px;text-align:center}'
+            .'.altimiser-review-queue{display:block;flex:1;min-height:0;width:100%;border:0}',
         );
     }
 
     public function render(): void
     {
+        $notice = ConnectionFlow::takeNotice();
+        $connection = Connections::live(get_current_user_id());
+
+        echo '<div class="altimiser-layout">';
+
+        if ($notice !== null) {
+            printf('<div class="notice notice-%s inline"><p>%s</p></div>', esc_attr($notice['level']), esc_html($notice['message']));
+        }
+
+        $connection === null ? $this->renderConnect() : $this->renderQueue($connection);
+
+        echo '</div>';
+    }
+
+    /**
+     * Opened as a page of its own rather than in the frame, so the editor can sign in to
+     * Altimiser with their own session.
+     */
+    private function renderConnect(): void
+    {
+        printf(
+            '<div class="altimiser-connect"><h1>%s</h1><p>%s</p><p><a class="button button-primary" href="%s">%s</a></p></div>',
+            esc_html__('Connect your Altimiser account', 'altimiser'),
+            esc_html__('The review queue is on Altimiser. Connect your Altimiser account to use it. Your agency gives you an account.', 'altimiser'),
+            esc_url(wp_nonce_url(admin_url('admin-post.php?action=altimiser_connect'), 'altimiser_connect')),
+            esc_html__('Connect', 'altimiser'),
+        );
+    }
+
+    /**
+     * @param  array{connection: string, token: string, expires_at: int, account_email: string}  $connection
+     */
+    private function renderQueue(array $connection): void
+    {
+        printf(
+            '<div class="altimiser-connection"><form method="post" action="%s"><input type="hidden" name="action" value="altimiser_disconnect">%s%s <button type="submit" class="button-link">%s</button></form></div>',
+            esc_url(admin_url('admin-post.php')),
+            wp_nonce_field('altimiser_disconnect', '_wpnonce', true, false),
+            esc_html(sprintf(
+                /* translators: 1: the Altimiser account's email address, 2: when the connection ends */
+                __('Connected as %1$s until %2$s.', 'altimiser'),
+                $connection['account_email'],
+                wp_date(get_option('date_format').' '.get_option('time_format'), $connection['expires_at']),
+            )),
+            esc_html__('Disconnect', 'altimiser'),
+        );
+
         printf(
             '<iframe class="altimiser-review-queue" src="%s" title="%s" '
             .'sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"></iframe>',
-            esc_url($this->panel->reviewUrl(wp_get_current_user()->user_email, $this->panel->linkExpiry())),
+            esc_url($this->panel->reviewUrl(wp_get_current_user()->user_email, $this->panel->linkExpiry(), $connection)),
             esc_attr__('Altimiser review queue', 'altimiser'),
         );
     }
 
+    /**
+     * Counts are shown only once the editor has connected their account, so nothing about
+     * the queue appears to someone Altimiser has not given the site.
+     */
     public function renderWidget(): void
     {
+        if (Connections::live(get_current_user_id()) === null) {
+            printf('<p>%s</p>', esc_html__('Connect your Altimiser account to see what is waiting for review.', 'altimiser'));
+            $this->renderOpenButton(__('Connect your account', 'altimiser'));
+
+            return;
+        }
+
         $summary = $this->panel->summary();
 
         printf('<p>%s</p>', esc_html($this->describe($summary['awaiting_review'] ?? null)));
@@ -99,16 +161,21 @@ class ReviewQueuePage
             )));
         }
 
+        $this->renderOpenButton(__('Open the review queue', 'altimiser'));
+    }
+
+    private function renderOpenButton(string $label): void
+    {
         printf(
             '<p><a class="button button-primary" href="%s">%s</a></p>',
             esc_url(admin_url('admin.php?page=altimiser')),
-            esc_html__('Open the review queue', 'altimiser'),
+            esc_html($label),
         );
     }
 
     private function badge(): string
     {
-        $count = $this->panel->awaitingReview();
+        $count = Connections::live(get_current_user_id()) === null ? null : $this->panel->awaitingReview();
 
         if (! $count) {
             return '';
