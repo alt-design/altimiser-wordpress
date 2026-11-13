@@ -116,6 +116,28 @@ class HealthListsTest extends ReceiverTestCase
      *
      * @preserveGlobalState disabled
      */
+    public function test_leaves_out_fields_named_like_credentials(): void
+    {
+        require __DIR__.'/fixtures/acf-pro-options-pages.php';
+
+        altimiser_test_site_settings([
+            'maps_api_key' => 'a-maps-key',
+            'recaptchaSecret' => 'a-recaptcha-secret',
+            'mailchimp_token' => 'a-mailchimp-token',
+            'keywords' => 'housing repairs',
+        ]);
+
+        $this->assertSame(
+            [['handle' => 'keywords', 'display' => 'Keywords', 'value' => 'housing repairs']],
+            $this->health()['globals'][0]['fields'],
+        );
+    }
+
+    /**
+     * @runInSeparateProcess
+     *
+     * @preserveGlobalState disabled
+     */
     public function test_answers_with_an_empty_list_when_reading_acf_fails(): void
     {
         $errorLog = tempnam(sys_get_temp_dir(), 'altimiser');

@@ -8,7 +8,9 @@ namespace AltDesign\Altimiser;
  *
  * Only single line text, because a line break inside a JSON string breaks the whole
  * block. The values travel so Altimiser can tell which of them a page actually shows.
- * Without ACF, or without options pages, there are none.
+ * A field named or labelled like a credential is left out, because some sites keep an
+ * API key on an options page and the values go on to Altimiser's prompts. Without ACF,
+ * or without options pages, there are none.
  */
 class Globals
 {
@@ -103,7 +105,7 @@ class Globals
      */
     private function singleLine(array $field, mixed $postId): ?string
     {
-        if (($field['type'] ?? null) !== 'text' || ! is_string($field['name'] ?? null) || $field['name'] === '') {
+        if (($field['type'] ?? null) !== 'text' || ! is_string($field['name'] ?? null) || $field['name'] === '' || $this->looksLikeACredential($field)) {
             return null;
         }
 
@@ -114,5 +116,18 @@ class Globals
         }
 
         return trim($value);
+    }
+
+    /**
+     * Matched on whole words, splitting camel case too, so `apiKey` and `maps_api_key`
+     * are left out and `keywords` is not.
+     *
+     * @param  array<string, mixed>  $field
+     */
+    private function looksLikeACredential(array $field): bool
+    {
+        $words = preg_split('/[^a-z0-9]+/', strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', $field['name'].' '.($field['label'] ?? ''))));
+
+        return array_intersect((array) $words, ['key', 'apikey', 'token', 'secret', 'password']) !== [];
     }
 }

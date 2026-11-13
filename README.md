@@ -51,7 +51,7 @@ Connect again after activating Yoast SEO, so Altimiser reads what the site can n
 
 `GET /health` also reports two settings under `setup`, which Altimiser turns into findings because they stop fixes from counting: **Discourage search engines** under **Settings > Reading**, and plain permalinks.
 
-It reports what structured data and drafts can use as well: `collections`, the public post types with the address pattern of their posts, `globals`, the single line text fields on ACF PRO options pages, and `variables`, the names a structured data block can use. Under plain permalinks `collections` is empty.
+It reports what structured data and drafts can use as well: `collections`, the public post types with the address pattern of their posts, `globals`, the single line text fields on ACF PRO options pages with their values, leaving out any field whose name or label has key, token, secret or password as a word in it, and `variables`, the names a structured data block can use. Under plain permalinks `collections` is empty.
 
 ## What gets changed
 
