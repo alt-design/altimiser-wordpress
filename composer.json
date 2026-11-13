@@ -12,7 +12,8 @@
         "wp-phpunit/wp-phpunit": ">=6.8",
         "yoast/phpunit-polyfills": "^2.0",
         "composer/installers": "^2.3",
-        "wpackagist-plugin/wordpress-seo": "*"
+        "wpackagist-plugin/wordpress-seo": "*",
+        "wpackagist-plugin/advanced-custom-fields": "*"
     },
     "extra": {
         "wordpress-install-dir": "wordpress",

@@ -22,7 +22,26 @@ class Settings
     {
         $url = self::read('ALTIMISER_URL', 'altimiser_url');
 
-        return $url === null ? null : rtrim($url, '/');
+        if ($url === null || ! self::isSecureAddress($url)) {
+            return null;
+        }
+
+        return rtrim($url, '/');
+    }
+
+    /**
+     * The review link carries a signature and the editor's address, so plain http is
+     * only accepted for a development machine.
+     */
+    public static function isSecureAddress(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        if (strtolower((string) parse_url($url, PHP_URL_SCHEME)) === 'https') {
+            return true;
+        }
+
+        return in_array($host, ['localhost', '127.0.0.1'], true) || str_ends_with($host, '.test');
     }
 
     public static function secretIsLongEnough(string $secret): bool

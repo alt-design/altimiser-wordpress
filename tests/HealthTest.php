@@ -43,8 +43,14 @@ class HealthTest extends ReceiverTestCase
             'meta_description.irrelevant',
             'meta_description.duplicate',
             'open_graph.missing',
+            'image.alt_missing',
+            'image.alt_empty',
+            'image.alt_too_long',
+            'link.opportunity',
+            'site.robots_missing',
+            'sitemap.not_declared_in_robots',
         ], $health['checks']);
-        $this->assertSame(['content.update'], $health['capabilities']);
+        $this->assertSame(['content.update', 'content.link'], $health['capabilities']);
         $this->assertSame(['installed' => true, 'version' => WPSEO_VERSION], $health['integrations']['yoast']);
     }
 
@@ -60,14 +66,20 @@ class HealthTest extends ReceiverTestCase
         $this->assertContains('title.too_long', $checks);
     }
 
-    public function test_advertises_nothing_without_a_supported_seo_plugin(): void
+    public function test_withholds_what_yoast_would_write_without_a_supported_seo_plugin(): void
     {
         $receiver = new AltDesign\Altimiser\Receiver(dirname(__DIR__).'/altimiser.php', null);
 
         $health = $receiver->health()->get_data();
 
-        $this->assertSame([], $health['checks']);
-        $this->assertSame([], $health['capabilities']);
+        $this->assertEqualsCanonicalizing([
+            'image.alt_missing',
+            'image.alt_empty',
+            'image.alt_too_long',
+            'link.opportunity',
+            'site.robots_missing',
+            'sitemap.not_declared_in_robots',
+        ], $health['checks']);
         $this->assertSame(['installed' => false], $health['integrations']['yoast']);
     }
 

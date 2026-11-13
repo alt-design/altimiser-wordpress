@@ -33,6 +33,22 @@ class SettingsPageTest extends WP_UnitTestCase
         $this->assertSame(['altimiser_url' => 'https://altimiser.example.com', 'secret' => $this->longSecret], $saved);
     }
 
+    public function test_turns_away_a_plain_http_address_except_for_a_development_machine(): void
+    {
+        $refused = (new SettingsPage())->sanitise(['altimiser_url' => 'http://altimiser.example.com']);
+
+        $this->assertArrayNotHasKey('altimiser_url', $refused);
+        $this->assertSame('altimiser_url_not_https', get_settings_errors(Settings::$option)[0]['code']);
+        $this->assertSame(['altimiser_url' => 'http://altimiser.test'], (new SettingsPage())->sanitise(['altimiser_url' => 'http://altimiser.test']));
+    }
+
+    public function test_ignores_a_plain_http_address_set_in_wp_config(): void
+    {
+        define('ALTIMISER_URL', 'http://altimiser.example.com');
+
+        $this->assertNull(Settings::altimiserUrl());
+    }
+
     public function test_keeps_the_saved_secret_when_the_field_is_left_blank(): void
     {
         update_option(Settings::$option, ['secret' => $this->longSecret]);
@@ -103,6 +119,7 @@ class SettingsPageTest extends WP_UnitTestCase
         update_option(Settings::$option, ['secret' => $this->longSecret]);
         set_transient('altimiser_summary', ['summary' => ['awaiting_review' => 1]], 300);
         Connections::put($editor, ['connection' => 'c', 'token' => 't', 'expires_at' => time() + 60, 'account_email' => '']);
+        update_option('altimiser_robots_sitemap', 'https://example.org/sitemap.xml');
 
         define('WP_UNINSTALL_PLUGIN', 'altimiser/altimiser.php');
         require dirname(__DIR__).'/uninstall.php';
@@ -110,6 +127,7 @@ class SettingsPageTest extends WP_UnitTestCase
         $this->assertFalse(get_option(Settings::$option));
         $this->assertFalse(get_transient('altimiser_summary'));
         $this->assertFalse(get_user_option(Connections::$option, $editor));
+        $this->assertFalse(get_option('altimiser_robots_sitemap'));
     }
 
     public function test_shows_nothing_to_someone_who_cannot_manage_options(): void
