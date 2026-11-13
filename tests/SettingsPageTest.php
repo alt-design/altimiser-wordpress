@@ -51,6 +51,24 @@ class SettingsPageTest extends WP_UnitTestCase
         $this->assertSame('altimiser_secret_too_short', get_settings_errors(Settings::$option)[0]['code']);
     }
 
+    public function test_keeps_the_settings_out_of_the_options_loaded_on_every_request(): void
+    {
+        global $wpdb;
+
+        $wpdb->insert($wpdb->options, ['option_name' => Settings::$option, 'option_value' => serialize(['secret' => $this->longSecret]), 'autoload' => 'on']);
+        wp_cache_delete('alloptions', 'options');
+
+        update_option(Settings::$option, ['secret' => "{$this->longSecret}-changed"]);
+
+        $this->assertArrayNotHasKey(Settings::$option, wp_load_alloptions(true));
+
+        delete_option(Settings::$option);
+        update_option(Settings::$option, ['secret' => $this->longSecret]);
+
+        $this->assertArrayNotHasKey(Settings::$option, wp_load_alloptions(true));
+        $this->assertSame($this->longSecret, Settings::secret());
+    }
+
     public function test_never_shows_the_saved_secret(): void
     {
         update_option(Settings::$option, ['secret' => $this->longSecret]);

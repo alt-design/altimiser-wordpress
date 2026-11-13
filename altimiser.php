@@ -16,6 +16,7 @@
 use AltDesign\Altimiser\ControlPanel;
 use AltDesign\Altimiser\Receiver;
 use AltDesign\Altimiser\ReviewQueuePage;
+use AltDesign\Altimiser\Settings;
 use AltDesign\Altimiser\SettingsPage;
 use AltDesign\Altimiser\Updater;
 use AltDesign\Altimiser\Yoast;
@@ -34,6 +35,9 @@ spl_autoload_register(static function (string $class): void {
 add_action('rest_api_init', static function (): void {
     (new Receiver(__FILE__, defined('WPSEO_VERSION') ? new Yoast() : null))->registerRoutes();
 });
+
+add_action('add_option_'.Settings::$option, [Settings::class, 'keepOutOfAutoload']);
+add_action('update_option_'.Settings::$option, [Settings::class, 'keepOutOfAutoload']);
 
 add_action('plugins_loaded', static function (): void {
     if (is_admin()) {

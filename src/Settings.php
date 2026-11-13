@@ -49,6 +49,15 @@ class Settings
         return is_array($stored) ? $stored : [];
     }
 
+    /**
+     * The secret is needed only when a request arrives, so it stays out of the options
+     * WordPress loads and caches for every page.
+     */
+    public static function keepOutOfAutoload(): void
+    {
+        wp_set_option_autoload(self::$option, false);
+    }
+
     private static function read(string $constant, string $key): ?string
     {
         $value = self::fromCode($constant) ?? (self::stored()[$key] ?? null);
