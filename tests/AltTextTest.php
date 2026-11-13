@@ -40,6 +40,20 @@ class AltTextTest extends ReceiverTestCase
         $this->assertStringContainsString('alt="Boats moored in the harbour at dusk"', get_post($this->pageId)->post_content);
     }
 
+    public function test_clears_every_cached_page_when_the_media_library_is_written(): void
+    {
+        $purged = [];
+        $record = static function (array $urls, bool $everything) use (&$purged): void {
+            $purged[] = $everything;
+        };
+
+        add_action('altimiser_purge_urls', $record, 10, 2);
+        $this->sendAlt(['target' => $this->target("{$this->uploads}/2026/11/harbour-300x200.jpg")]);
+        remove_action('altimiser_purge_urls', $record);
+
+        $this->assertSame([true], $purged);
+    }
+
     public function test_finds_an_image_wordpress_scaled_down_on_upload(): void
     {
         $scaledId = $this->image('2026/11/estuary-scaled.jpg');

@@ -110,7 +110,7 @@ Each request attempts up to 10 changes within 45 seconds and hands the rest back
 
 ## Page caches
 
-A request that applies something, or finds it already in place, purges the pages it changed, once, during the request, after Yoast has rebuilt what the page prints. A dry run never does.
+A request that applies something, or finds it already in place, purges the pages it changed, once, during the request, after Yoast has rebuilt what the page prints. Alt text written to the media library shows wherever the image does, so that clears the whole cache instead. A dry run never purges anything.
 
 | Plugin | What is purged | How it was checked |
 | --- | --- | --- |
