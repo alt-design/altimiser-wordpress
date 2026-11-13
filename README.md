@@ -138,7 +138,7 @@ WordPress's own updater offers new versions, from the latest release on GitHub. 
 
 A site that keeps its plugins in git should commit the update instead, or the next deploy puts the old version back.
 
-To publish a release, change `Version` in `altimiser.php` on `main`, then push a tag naming that version, such as `v0.2.0`. The release workflow runs the tests, checks that the tag is on `main` and matches the version, and only then builds `altimiser.zip` and publishes it. The updater trusts the latest release, so keep the ability to push tags to people who need it.
+To publish a release, change `Version` in `altimiser.php` on `main`, then push a tag naming that version, such as `v0.2.0`. The release workflow runs the tests, checks that the tag is on `main` and matches the version, and only then builds `altimiser.zip` and publishes it. A ruleset lets only repository admins create a `v` tag and stops anyone moving or deleting one, and published releases are immutable, so the zip of a release cannot be swapped once it is out. The updater trusts the latest release, so keep admin access to the repository to people who need it.
 
 ## Uninstalling
 
