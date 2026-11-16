@@ -42,6 +42,25 @@ class SettingsPageTest extends WP_UnitTestCase
         $this->assertSame(['altimiser_url' => 'http://altimiser.test'], (new SettingsPage())->sanitise(['altimiser_url' => 'http://altimiser.test']));
     }
 
+    public function test_keeps_the_saved_address_when_a_plain_http_one_is_turned_away(): void
+    {
+        update_option(Settings::$option, ['altimiser_url' => 'https://altimiser.example.com', 'secret' => $this->longSecret]);
+
+        $saved = (new SettingsPage())->sanitise(['altimiser_url' => 'http://altimiser.example.com', 'secret' => '']);
+
+        $this->assertSame(['altimiser_url' => 'https://altimiser.example.com', 'secret' => $this->longSecret], $saved);
+        $this->assertSame('altimiser_url_not_https', get_settings_errors(Settings::$option)[0]['code']);
+    }
+
+    public function test_clears_the_address_when_the_field_is_emptied(): void
+    {
+        update_option(Settings::$option, ['altimiser_url' => 'https://altimiser.example.com', 'secret' => $this->longSecret]);
+
+        $saved = (new SettingsPage())->sanitise(['altimiser_url' => '', 'secret' => '']);
+
+        $this->assertSame(['secret' => $this->longSecret], $saved);
+    }
+
     public function test_ignores_a_plain_http_address_set_in_wp_config(): void
     {
         define('ALTIMISER_URL', 'http://altimiser.example.com');
