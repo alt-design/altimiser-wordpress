@@ -31,7 +31,7 @@ jobs:
           grep -Fxq " * Version: ${GITHUB_REF_NAME#v}" altimiser.php
 
       - name: Build the zip
-        run: git archive --prefix=altimiser/ -o altimiser.zip HEAD altimiser.php uninstall.php src README.md
+        run: git archive --prefix=altimiser/ -o altimiser.zip HEAD altimiser.php uninstall.php src README.md LICENSE
 
       - name: Publish the release
         run: gh release create "$GITHUB_REF_NAME" altimiser.zip --generate-notes

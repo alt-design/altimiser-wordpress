@@ -228,3 +228,7 @@ GitHub Actions runs them on PHP 8.1 to 8.4, against WordPress 6.8 and the latest
 `SignatureTest` computes the signature from the protocol document rather than taking it from the plugin or from Altimiser, and checks that calculation against the document's worked examples. Requests go through WordPress's own REST server, so `permission_callback` is what is under test.
 
 `NoSecretTest`, `SecretSourcesTest` and `SettingsPageTest` run each test in a process of its own, because a constant cannot be undefined or redefined. `PageCacheTest` does the same where it defines stand-ins for the cache plugins' purge functions, in `tests/fixtures/page-cache-plugins.php`.
+
+## Licence
+
+GPL 2.0 or later. The full text is in `LICENSE`.

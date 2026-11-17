@@ -9,6 +9,8 @@
  * Requires PHP: 8.1
  * Author: Alt Design
  * Author URI: https://alt-design.net
+ * License: GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Update URI: https://github.com/alt-design/altimiser-wordpress
  * Text Domain: altimiser
  */
