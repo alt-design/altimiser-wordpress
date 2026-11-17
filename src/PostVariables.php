@@ -1,0 +1,94 @@
+<?php
+
+namespace AltDesign\Altimiser;
+
+use WP_Post;
+
+/**
+ * The variables a structured data block may use, and their values for one post.
+ *
+ * Reported on /health so Altimiser names these to its model, and not the ones
+ * the Statamic addon renders.
+ */
+class PostVariables
+{
+    public function __construct(private ?Yoast $yoast) {}
+
+    /**
+     * @return array<string, string>
+     */
+    public function descriptions(): array
+    {
+        return [
+            'title' => "The post's title",
+            'meta_description' => "The post's meta description, from Yoast SEO where it is active, otherwise its excerpt",
+            'permalink' => "The post's full address",
+            'excerpt' => "The post's excerpt, or the start of its text where it has none",
+            'featured_image' => "The address of the post's featured image, empty where it has none",
+            'date_published' => 'When the post was published, as an ISO 8601 date and time',
+            'date_modified' => 'When the post was last modified, as an ISO 8601 date and time',
+            'author_name' => "The post's author's display name",
+            'site_name' => "The site's name",
+            'site_url' => "The site's home address",
+        ];
+    }
+
+    /**
+     * Each value is worked out only when a block names it, because a loop asks this for
+     * up to 50 posts on every page view the cache does not answer.
+     *
+     * @return array<string, callable(): string>
+     */
+    public function for(WP_Post $post): array
+    {
+        return [
+            'title' => fn (): string => $this->plain($post->post_title),
+            'meta_description' => fn (): string => $this->metaDescription($post),
+            'permalink' => static fn (): string => (string) get_permalink($post),
+            'excerpt' => fn (): string => $this->excerpt($post),
+            'featured_image' => static fn (): string => (string) get_the_post_thumbnail_url($post, 'full'),
+            'date_published' => static fn (): string => (string) get_post_time('c', false, $post),
+            'date_modified' => static fn (): string => (string) get_post_modified_time('c', false, $post),
+            'author_name' => static fn (): string => (string) get_the_author_meta('display_name', (int) $post->post_author),
+            'site_name' => static fn (): string => get_bloginfo('name'),
+            'site_url' => static fn (): string => home_url(),
+        ];
+    }
+
+    private function metaDescription(WP_Post $post): string
+    {
+        $fromYoast = $this->yoast === null ? '' : $this->yoastDescription($this->yoast, $post);
+
+        return $fromYoast === '' ? $this->excerpt($post) : $fromYoast;
+    }
+
+    private function yoastDescription(Yoast $yoast, WP_Post $post): string
+    {
+        $stored = $yoast->stored($post, 'metadesc');
+        $template = $stored === '' ? $yoast->template($post, 'metadesc') : $stored;
+
+        return $this->plain($yoast->render($template, $post));
+    }
+
+    /**
+     * Empty for a password protected post, whose text is only for those given the
+     * password, while structured data is printed for everyone.
+     */
+    private function excerpt(WP_Post $post): string
+    {
+        if ($post->post_password !== '') {
+            return '';
+        }
+
+        $text = $post->post_excerpt !== ''
+            ? $post->post_excerpt
+            : wp_trim_words(strip_shortcodes(wp_strip_all_tags($post->post_content)), 55, '');
+
+        return $this->plain($text);
+    }
+
+    private function plain(string $value): string
+    {
+        return trim(html_entity_decode(wp_strip_all_tags($value), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+}
