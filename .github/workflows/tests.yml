@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -21,6 +22,11 @@ jobs:
       matrix:
         php: ['8.1', '8.2', '8.3', '8.4']
         wordpress: ['6.8.*', '*']
+        yoast: ['*']
+        include:
+          - php: '8.1'
+            wordpress: '6.8.*'
+            yoast: '24.0'
 
     services:
       mysql:
@@ -51,6 +57,7 @@ jobs:
           composer require --dev --no-interaction --no-progress --prefer-dist --with-all-dependencies
           "roots/wordpress:${{ matrix.wordpress }}"
           "wp-phpunit/wp-phpunit:${{ matrix.wordpress }}"
+          "wpackagist-plugin/wordpress-seo:${{ matrix.yoast }}"
 
       - name: Run tests
         run: vendor/bin/phpunit

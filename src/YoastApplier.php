@@ -5,13 +5,10 @@ namespace AltDesign\Altimiser;
 use WP_Post;
 use WP_Term;
 
-class YoastApplier
+class YoastApplier implements Applier
 {
     public function __construct(private Yoast $yoast, private ContentResolver $content) {}
 
-    /**
-     * @return array<int, string>
-     */
     public function checks(): array
     {
         $checks = [
@@ -35,9 +32,6 @@ class YoastApplier
         return in_array($check, $this->checks(), true);
     }
 
-    /**
-     * @return array<string, mixed>
-     */
     public function apply(ChangeRequest $change, bool $dryRun): array
     {
         if (trim($change->suggestedValue ?? '') === '') {

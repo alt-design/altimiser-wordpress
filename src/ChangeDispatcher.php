@@ -7,7 +7,7 @@ use Throwable;
 class ChangeDispatcher
 {
     /**
-     * @param  array<int, YoastApplier>  $appliers
+     * @param  array<int, Applier>  $appliers
      */
     public function __construct(private array $appliers, private PageCache $pageCache) {}
 
@@ -18,8 +18,9 @@ class ChangeDispatcher
      *
      * The purge happens here and not at the end of the request because W3 Total Cache
      * carries a flush out on the shutdown action, so one asked for later is not acted on.
-     * A change already in place purges too: the request that wrote it may have died before
-     * getting this far, and being sent the change again is the only chance left to do it.
+     * A change already in place purges its page too: the request that wrote it may have
+     * died before getting this far, and being sent the change again is the only chance
+     * left to do it.
      *
      * @param  array<int, ChangeRequest>  $changes
      * @return array<int, array<string, mixed>>
@@ -31,6 +32,8 @@ class ChangeDispatcher
         $budget = $this->timeBudget();
         $results = [];
 
+        $landed = [];
+
         foreach ($changes as $change) {
             if ($results !== [] && $this->outOfRoom(count($results), $batchSize, $startedAt, $budget)) {
                 $results[] = ChangeResult::deferred($change->id);
@@ -38,14 +41,42 @@ class ChangeDispatcher
                 continue;
             }
 
-            $results[] = $this->applyOne($change, $dryRun);
+            $result = $this->applyOne($change, $dryRun);
+            $results[] = $result;
+
+            if (in_array($result['status'], ['applied', 'already_applied'], true)) {
+                $landed[] = [$change->url, $result['location'] ?? []];
+            }
         }
 
-        if (! $dryRun && array_intersect(['applied', 'already_applied'], array_column($results, 'status')) !== []) {
-            $this->pageCache->purge();
+        if (! $dryRun) {
+            $this->purge($landed);
         }
 
         return $results;
+    }
+
+    /**
+     * A change stored as a default shows on every page of its kind, so it clears the
+     * whole cache. Anything else clears the page it was made for.
+     *
+     * @param  array<int, array{0: string, 1: array<string, mixed>}>  $landed
+     */
+    private function purge(array $landed): void
+    {
+        if ($landed === []) {
+            return;
+        }
+
+        foreach ($landed as [, $location]) {
+            if (($location['default'] ?? false) === true) {
+                $this->pageCache->purgeEverything();
+
+                return;
+            }
+        }
+
+        $this->pageCache->purge(array_column($landed, 0));
     }
 
     /**
@@ -66,31 +97,26 @@ class ChangeDispatcher
     }
 
     /**
-     * Failed rather than skipped with no applier, because Altimiser withdraws the
-     * approval on a skip, and this one comes out differently once Yoast SEO is back.
-     *
      * @return array<string, mixed>
      */
     private function applyOne(ChangeRequest $change, bool $dryRun): array
     {
-        if ($this->appliers === []) {
-            return ChangeResult::failed(
-                $change->id,
-                'seo_plugin_inactive',
-                'Yoast SEO is not active on this site, so nothing was attempted. The change stays approved for the next apply.',
-            );
-        }
-
         foreach ($this->appliers as $applier) {
             if (! $applier->supports($change->check)) {
                 continue;
             }
 
             try {
-                return $applier->apply($change, $dryRun);
+                $result = $applier->apply($change, $dryRun);
             } catch (Throwable $exception) {
-                return ChangeResult::failed($change->id, 'write_failed', $exception->getMessage());
+                $result = ChangeResult::failed($change->id, 'write_failed', $exception->getMessage());
             }
+
+            if (($result['reason'] ?? null) === 'write_failed') {
+                error_log("Altimiser could not apply {$change->check} to {$change->url}: {$result['message']}");
+            }
+
+            return $result;
         }
 
         return ChangeResult::skipped(

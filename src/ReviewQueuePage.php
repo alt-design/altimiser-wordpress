@@ -4,7 +4,7 @@ namespace AltDesign\Altimiser;
 
 class ReviewQueuePage
 {
-    private string $capability = 'edit_others_posts';
+    public static string $capability = 'edit_others_posts';
 
     public function __construct(private ControlPanel $panel) {}
 
@@ -12,15 +12,23 @@ class ReviewQueuePage
     {
         add_action('admin_menu', [$this, 'addMenuItem']);
         add_action('wp_dashboard_setup', [$this, 'addDashboardWidget']);
+        add_action('admin_enqueue_scripts', [$this, 'addStyles']);
     }
 
     public function addMenuItem(): void
     {
-        if (! current_user_can($this->capability)) {
+        if (! current_user_can(self::$capability)) {
             return;
         }
 
-        add_menu_page('Altimiser', 'Altimiser'.$this->badge(), $this->capability, 'altimiser', [$this, 'render'], $this->icon());
+        add_menu_page(
+            __('Altimiser', 'altimiser'),
+            __('Altimiser', 'altimiser').$this->badge(),
+            self::$capability,
+            'altimiser',
+            [$this, 'render'],
+            $this->icon(),
+        );
     }
 
     /**
@@ -40,53 +48,201 @@ class ReviewQueuePage
 
     public function addDashboardWidget(): void
     {
-        if (! current_user_can($this->capability)) {
+        if (! current_user_can(self::$capability)) {
             return;
         }
 
-        wp_add_dashboard_widget('altimiser', 'Altimiser', [$this, 'renderWidget']);
+        wp_add_dashboard_widget('altimiser', __('Altimiser', 'altimiser'), [$this, 'renderWidget']);
+    }
+
+    /**
+     * The queue fills the screen below the admin bar, with WordPress's own padding and
+     * footer taken away around it.
+     */
+    public function addStyles(string $hook): void
+    {
+        if ($hook !== 'toplevel_page_altimiser') {
+            return;
+        }
+
+        wp_register_style('altimiser-review-queue', false, [], null);
+        wp_enqueue_style('altimiser-review-queue');
+        wp_add_inline_style(
+            'altimiser-review-queue',
+            '.wp-admin #wpcontent{padding:0}#wpbody-content{padding-bottom:0}#wpfooter{display:none}'
+            .'.altimiser-layout{display:flex;flex-direction:column;height:calc(100vh - var(--wp-admin--admin-bar--height,32px))}'
+            .'.altimiser-layout .notice{margin:12px}'
+            .'.altimiser-connection{padding:6px 12px}.altimiser-connection form{display:inline}'
+            .'.altimiser-connect{max-width:32rem;margin:4rem auto;padding:0 20px;text-align:center}'
+            .'.altimiser-review-queue{display:block;flex:1;min-height:0;width:100%;border:0}',
+        );
     }
 
     public function render(): void
     {
+        $notice = ConnectionFlow::takeNotice();
+        $connection = Connections::live(get_current_user_id());
+
+        echo '<div class="altimiser-layout">';
+
+        if ($notice !== null) {
+            printf('<div class="notice notice-%s inline"><p>%s</p></div>', esc_attr($notice['level']), esc_html($notice['message']));
+        }
+
+        $connection === null ? $this->renderConnect() : $this->renderQueue($connection);
+
+        echo '</div>';
+    }
+
+    /**
+     * Opened as a page of its own rather than in the frame, so the editor can sign in to
+     * Altimiser with their own session.
+     */
+    private function renderConnect(): void
+    {
         printf(
-            '<style>.wp-admin #wpcontent{padding:0}#wpbody-content{padding-bottom:0}#wpfooter{display:none}</style>'
-            .'<iframe src="%s" title="Altimiser review queue" style="display:block;width:100%%;height:calc(100vh - var(--wp-admin--admin-bar--height,32px));border:0" '
-            .'sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"></iframe>',
-            esc_url($this->panel->reviewUrl(wp_get_current_user()->user_email, $this->panel->linkExpiry())),
+            '<div class="altimiser-connect"><h1>%s</h1><p>%s</p><p><a class="button button-primary" href="%s">%s</a></p></div>',
+            esc_html__('Connect your Altimiser account', 'altimiser'),
+            esc_html__('The review queue is on Altimiser. Connect your Altimiser account to use it. Your agency gives you an account.', 'altimiser'),
+            esc_url(wp_nonce_url(admin_url('admin-post.php?action=altimiser_connect'), 'altimiser_connect')),
+            esc_html__('Connect', 'altimiser'),
         );
     }
 
-    public function renderWidget(): void
+    /**
+     * @param  array{connection: string, token: string, expires_at: int, account_email: string}  $connection
+     */
+    private function renderQueue(array $connection): void
     {
         printf(
-            '<p>%s</p><p><a class="button button-primary" href="%s">Open the review queue</a></p>',
-            esc_html($this->describe($this->panel->awaitingReview())),
+            '<div class="altimiser-connection"><form method="post" action="%s"><input type="hidden" name="action" value="altimiser_disconnect">%s%s <button type="submit" class="button-link">%s</button></form></div>',
+            esc_url(admin_url('admin-post.php')),
+            wp_nonce_field('altimiser_disconnect', '_wpnonce', true, false),
+            esc_html(sprintf(
+                /* translators: 1: the Altimiser account's email address, 2: when the connection ends */
+                __('Connected as %1$s until %2$s.', 'altimiser'),
+                $connection['account_email'],
+                wp_date(get_option('date_format').' '.get_option('time_format'), $connection['expires_at']),
+            )),
+            esc_html__('Disconnect', 'altimiser'),
+        );
+
+        printf(
+            '<iframe class="altimiser-review-queue" src="%s" title="%s" '
+            .'sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"></iframe>',
+            esc_url($this->panel->reviewUrl(wp_get_current_user()->user_email, $this->panel->linkExpiry(), $connection)),
+            esc_attr__('Altimiser review queue', 'altimiser'),
+        );
+    }
+
+    /**
+     * Counts are shown only once the editor has connected their account, so nothing about
+     * the queue appears to someone Altimiser has not given the site.
+     */
+    public function renderWidget(): void
+    {
+        if (Connections::live(get_current_user_id()) === null) {
+            printf('<p>%s</p>', esc_html__('Connect your Altimiser account to see what is waiting for review.', 'altimiser'));
+            $this->renderOpenButton(__('Connect your account', 'altimiser'));
+
+            return;
+        }
+
+        $summary = $this->panel->summary();
+
+        printf('<p>%s</p>', esc_html($this->describe($summary['awaiting_review'] ?? null)));
+
+        $details = array_filter([$this->pending($summary), $this->handled($summary)]);
+
+        if ($details !== []) {
+            printf('<ul>%s</ul>', implode('', array_map(
+                static fn (string $detail): string => '<li>'.esc_html($detail).'</li>',
+                $details,
+            )));
+        }
+
+        $this->renderOpenButton(__('Open the review queue', 'altimiser'));
+    }
+
+    private function renderOpenButton(string $label): void
+    {
+        printf(
+            '<p><a class="button button-primary" href="%s">%s</a></p>',
             esc_url(admin_url('admin.php?page=altimiser')),
+            esc_html($label),
         );
     }
 
     private function badge(): string
     {
-        $count = $this->panel->awaitingReview();
+        $count = Connections::live(get_current_user_id()) === null ? null : $this->panel->awaitingReview();
 
         if (! $count) {
             return '';
         }
 
         return sprintf(
-            ' <span class="awaiting-mod"><span aria-hidden="true">%1$d</span><span class="screen-reader-text">%1$d waiting for review</span></span>',
+            ' <span class="awaiting-mod"><span aria-hidden="true">%1$d</span><span class="screen-reader-text">%2$s</span></span>',
             $count,
+            esc_html(sprintf(
+                /* translators: %d: how many changes are waiting for review */
+                _n('%d waiting for review', '%d waiting for review', $count, 'altimiser'),
+                $count,
+            )),
         );
     }
 
     private function describe(?int $count): string
     {
-        return match ($count) {
-            null => 'The count is not available right now, but the review queue should still open.',
-            0 => 'Nothing is waiting for review.',
-            1 => '1 change is waiting for review.',
-            default => "{$count} changes are waiting for review.",
-        };
+        if ($count === null) {
+            return __('The count is not available right now, but the review queue should still open.', 'altimiser');
+        }
+
+        if ($count === 0) {
+            return __('Nothing is waiting for review.', 'altimiser');
+        }
+
+        return sprintf(
+            /* translators: %d: how many changes are waiting for review */
+            _n('%d change is waiting for review.', '%d changes are waiting for review.', $count, 'altimiser'),
+            $count,
+        );
+    }
+
+    /**
+     * @param  ?array<string, int>  $summary
+     */
+    private function pending(?array $summary): ?string
+    {
+        $pending = $summary['pending'] ?? 0;
+
+        if ($pending === 0) {
+            return null;
+        }
+
+        return sprintf(
+            /* translators: %d: how many approved changes have not been applied yet */
+            _n('%d approved change is waiting to be applied.', '%d approved changes are waiting to be applied.', $pending, 'altimiser'),
+            $pending,
+        );
+    }
+
+    /**
+     * @param  ?array<string, int>  $summary
+     */
+    private function handled(?array $summary): ?string
+    {
+        $outstanding = $summary['outstanding'] ?? 0;
+
+        if ($outstanding === 0) {
+            return null;
+        }
+
+        return sprintf(
+            /* translators: 1: findings this plugin can fix, 2: all open findings */
+            _n('Altimiser can apply fixes for %1$d of the %2$d open finding on this site.', 'Altimiser can apply fixes for %1$d of the %2$d open findings on this site.', $outstanding, 'altimiser'),
+            $summary['handled'] ?? 0,
+            $outstanding,
+        );
     }
 }

@@ -2,6 +2,7 @@
 
 namespace AltDesign\Altimiser;
 
+use Throwable;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -28,45 +29,113 @@ class Receiver
         ]);
     }
 
+    /**
+     * A refused request that carried a signature is logged, because it is most likely
+     * Altimiser with the wrong secret or a clock out of step. Ones without are left out,
+     * since anything probing the route would fill the log.
+     */
     public function verifySignature(WP_REST_Request $request): bool|WP_Error
     {
-        $secret = defined('ALTIMISER_SECRET') ? constant('ALTIMISER_SECRET') : null;
+        $refusal = $this->refusal($request);
 
-        if (! is_string($secret) || trim($secret) === '') {
-            return $this->refuse('Altimiser is not configured on this site.');
+        if ($refusal === null) {
+            return true;
+        }
+
+        if ($request->get_header('X-Altimiser-Signature') !== null) {
+            error_log("Altimiser refused a signed request to {$request->get_route()}: {$refusal}");
+        }
+
+        return new WP_Error('altimiser_refused', $refusal, ['status' => 401]);
+    }
+
+    private function refusal(WP_REST_Request $request): ?string
+    {
+        $secret = Settings::secret();
+
+        if ($secret === null) {
+            return 'Altimiser is not configured on this site.';
+        }
+
+        if (! Settings::secretIsLongEnough($secret)) {
+            return 'The Altimiser secret on this site is shorter than 32 characters, so requests are refused until it is replaced with a longer one.';
         }
 
         $timestamp = (int) $request->get_header('X-Altimiser-Timestamp');
 
         if (abs(time() - $timestamp) > $this->toleranceInSeconds) {
-            return $this->refuse('Signature timestamp is outside the accepted window.');
+            return 'Signature timestamp is outside the accepted window.';
         }
 
         $expected = 'sha256='.hash_hmac('sha256', "{$timestamp}\n{$request->get_body()}", $secret);
 
         if (! hash_equals($expected, (string) $request->get_header('X-Altimiser-Signature'))) {
-            return $this->refuse('Signature does not match.');
+            return 'Signature does not match.';
         }
 
-        return true;
+        return null;
     }
 
     public function health(): WP_REST_Response
     {
-        $checks = array_merge([], ...array_map(
-            static fn (YoastApplier $applier): array => $applier->checks(),
-            $this->appliers(),
-        ));
+        $checks = $this->advertisedChecks();
 
         return $this->uncached([
             'receiver' => 'wordpress',
             'receiver_version' => get_file_data($this->pluginFile, ['version' => 'Version'])['version'],
             'cms_version' => get_bloginfo('version'),
-            'capabilities' => $checks === [] ? [] : ['content.update'],
+            'capabilities' => $this->capabilities($checks),
             'checks' => $checks,
             'integrations' => ['yoast' => $this->yoastState()],
+            'setup' => $this->setup(),
             'site_url' => home_url(),
         ]);
+    }
+
+    /**
+     * An applier that throws is left out rather than stopping the answer, so a fault
+     * in Yoast costs its own checks and not the connection.
+     *
+     * @return array<int, string>
+     */
+    private function advertisedChecks(): array
+    {
+        $checks = [];
+
+        foreach ($this->appliers() as $applier) {
+            try {
+                $checks = [...$checks, ...$applier->checks()];
+            } catch (Throwable $exception) {
+                error_log("Altimiser left out the checks of one applier: {$exception->getMessage()}");
+            }
+        }
+
+        return array_values(array_unique($checks));
+    }
+
+    /**
+     * @param  array<int, string>  $checks
+     * @return array<int, string>
+     */
+    private function capabilities(array $checks): array
+    {
+        return array_keys(array_filter([
+            'content.update' => $checks !== [],
+            'content.link' => in_array('link.opportunity', $checks, true),
+        ]));
+    }
+
+    /**
+     * Settings that stop fixes from counting, which Altimiser reports as findings.
+     *
+     * @return array<string, bool>
+     */
+    private function setup(): array
+    {
+        return [
+            'search_engines_discouraged' => (string) get_option('blog_public', '1') === '0',
+            'plain_permalinks' => (string) get_option('permalink_structure') === '',
+        ];
     }
 
     public function changes(WP_REST_Request $request): WP_REST_Response|WP_Error
@@ -105,11 +174,15 @@ class Receiver
     }
 
     /**
-     * @return array<int, YoastApplier>
+     * @return array<int, Applier>
      */
     private function appliers(): array
     {
-        return $this->yoast === null ? [] : [new YoastApplier($this->yoast, new ContentResolver())];
+        $content = new ContentResolver();
+
+        return [
+            $this->yoast === null ? new InactiveSeoPlugin() : new YoastApplier($this->yoast, $content),
+        ];
     }
 
     /**
@@ -145,10 +218,5 @@ class Receiver
         add_action('shutdown', static fn () => add_filter('post_password_required', '__return_true'), 0);
 
         return new WP_REST_Response($body, 200, array_filter(wp_get_nocache_headers()));
-    }
-
-    private function refuse(string $message): WP_Error
-    {
-        return new WP_Error('altimiser_refused', $message, ['status' => 401]);
     }
 }
