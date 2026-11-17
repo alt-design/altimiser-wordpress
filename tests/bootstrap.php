@@ -14,6 +14,7 @@ require_once "{$wordPressTests}/includes/functions.php";
 
 tests_add_filter('muplugins_loaded', static function () use ($pluginDirectory): void {
     require "{$pluginDirectory}/vendor/wp-plugins/wordpress-seo/wp-seo.php";
+    require "{$pluginDirectory}/vendor/wp-plugins/advanced-custom-fields/acf.php";
     require "{$pluginDirectory}/altimiser.php";
 });
 

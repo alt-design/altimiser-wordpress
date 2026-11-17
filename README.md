@@ -2,11 +2,11 @@
 
 Connects a WordPress site to Altimiser. It implements Altimiser's receiver protocol, which is kept with Altimiser itself, and it is held to that document rather than to the [Statamic receiver](https://github.com/alt-design/altimiser-statamic), with which it shares no code.
 
-It applies the changes Altimiser sends to titles, meta descriptions and Open Graph text, by writing to Yoast SEO's own fields. Without Yoast SEO active a site can still connect, but `GET /health` advertises none of those checks, Altimiser reports the gap as `receiver.no_seo_plugin`, and none of those fields is changed.
+It applies the changes Altimiser sends to titles, meta descriptions and Open Graph text, by writing to Yoast SEO's own fields. It also writes image alt text, links a page to another it already names, and fixes robots.txt. Without Yoast SEO active a site can still connect and take those three, but `GET /health` advertises none of the Yoast checks, Altimiser reports the gap as `receiver.no_seo_plugin`, and no title, description or social text is changed.
 
 ## Requirements
 
-WordPress 6.8 or newer, PHP 8.1 or newer, and Yoast SEO 24.0 or newer for titles, descriptions and Open Graph text. The tests run against Yoast SEO 24.0 as well as the latest release. The plugin has no runtime Composer dependencies, because vendor classes in a plugin can collide with another plugin's copies.
+WordPress 6.8 or newer, PHP 8.1 or newer, and Yoast SEO 24.0 or newer for titles, descriptions and Open Graph text. The tests run against Yoast SEO 24.0 as well as the latest release. Advanced Custom Fields is optional: where it is active, links also go into its editor fields. The plugin has no runtime Composer dependencies, because vendor classes in a plugin can collide with another plugin's copies.
 
 ## Installing
 
@@ -45,7 +45,7 @@ php artisan altimiser:connect https://example.com https://example.com/wp-json/al
 
 Use the address the site actually answers at, including `https` and any `www`. Altimiser follows redirects, which works for this `GET`, but a `POST` that gets redirected arrives as a `GET` and fails later on.
 
-A successful connection shows the receiver as `wordpress` with the plugin's version and the WordPress version. Without Yoast SEO active a warning appears: "advertises no checks".
+A successful connection shows the receiver as `wordpress` with the plugin's version and the WordPress version. Without Yoast SEO active, Altimiser raises `receiver.no_seo_plugin` on the next scan.
 
 Connect again after activating Yoast SEO, so Altimiser reads what the site can now apply.
 
@@ -61,6 +61,29 @@ Connect again after activating Yoast SEO, so Altimiser reads what the site can n
 
 These are written to the post, page, custom post type or taxonomy term the URL belongs to, as long as its type has public pages. A shared template is never edited and a meta title is never written to `post_title`.
 
+| Checks | Where it is written |
+| --- | --- |
+| `image.alt_missing`, `alt_empty`, `alt_too_long` | The image's alt text in the media library, and the page's own copy of it |
+| `link.opportunity` | The first mention in the page's content, or in an ACF editor field |
+| `site.robots_missing` | A new `robots.txt` at the root of the site |
+| `sitemap.not_declared_in_robots` | The `robots.txt` file, or what WordPress prints at `/robots.txt` when there is no file |
+
+### Alt text
+
+WordPress keeps alt text in two places. The media library holds the image's own, which featured images, most themes and page builders print, and the editor copies it into a post when the image is inserted. From then on the post's copy is what that post shows. Each is written where it still holds what the scan saw, so wording an editor gave either one is left alone. A cover block keeps its alt text in the block's settings as well as its markup, and both are written, so the editor does not flag the block as broken.
+
+The image is found from the address the scan saw, which may be a resized copy, on a CDN, or of an image WordPress scaled down on upload. An image that is not in the media library, such as one in the theme, is refused as `no_match`.
+
+### Links
+
+The plugin turns the first mention of another page's heading into a link to it, adding no words. It reads the page's content first, then any ACF editor fields, including those inside groups, repeaters and flexible content. ACF text areas are left alone, because themes commonly escape them and the link would show as markup. Only a path on this site or an address on its own host is linked to. A mention inside a heading, code, a form control, a summary, an SVG, a script or a shortcode's settings is passed over, and the content is saved without WordPress's filtering of untrusted HTML, so embeds, scripts and forms on the page stay as they were.
+
+A revert takes the link off again and restores the words as they were.
+
+### robots.txt
+
+A missing `robots.txt` is created with no `Disallow` rules and the site's sitemap, Yoast SEO's where it makes one. A missing sitemap line is added to the file where there is one, and otherwise to what WordPress prints, through the `robots_txt` filter, which keeps the rules WordPress and other plugins print there. Neither is reverted. A site not at the root of its domain has no `robots.txt` of its own, so both are refused there. On a multisite network every site is served from one folder, so a file there would answer for all of them: no file is created or edited, and a sitemap goes only into what WordPress prints for that site. A site set to discourage search engines is not given a file that lets them in. The sitemap address has to be a single http or https address on the site's own host.
+
 `canonical.missing` is left to a developer. Yoast SEO prints a canonical itself except on noindex pages, so a missing one points to something else on the site.
 
 A change is refused rather than guessed at, and the finding goes to a person:
@@ -71,7 +94,13 @@ A change is refused rather than guessed at, and the finding goes to a person:
 | `ambiguous` | The page has no value of its own and its template does not produce what the scan saw. A renamed page does this, and so does a `wpseo_title` or `wpseo_metadesc` filter, so a site using those filters gets inherited values refused |
 | `not_found` | Nothing editable answers to the URL. This covers a blog home listing latest posts, post type and author archives, term pages on plain permalinks, a type with no pages of its own such as a menu item, and a page's address with a query on the end, such as a search or a campaign link |
 | `no_suggestion` | There is no replacement value, as with `og:image` |
-| `no_field` | Yoast SEO has no text field for that tag |
+| `no_field` | Yoast SEO has no text field for that tag, or the site has no `robots.txt` of its own to write, because it is not at the root of its domain or is on a multisite network |
+| `search_discouraged` | The site is set to discourage search engines, so a `robots.txt` that lets them in was not written |
+| `no_match` | The image is not in the media library |
+| `already_linked` | The first mention to link already links somewhere else, which somebody chose |
+| `mention_not_found` | The words to link are not in the page's content, usually because the theme prints them |
+| `page_builder` | The page is built with Elementor, Beaver Builder, Divi, WPBakery, Avada, Oxygen, Bricks or SiteOrigin, or its content holds another builder's shortcodes. These keep the page in their own data or in shortcode settings, where an edit would be lost or break the layout. Alt text still goes into the media library, which they print |
+| `invalid_change` | A link change arrived without the words to link or where to link them, or pointing off the site, or a sitemap address that is not on the site |
 
 If Yoast SEO is not active when one of its changes arrives, nothing is attempted and the change comes back as `failed` with the reason `seo_plugin_inactive`. That keeps its approval, so it goes out again on the next apply.
 
@@ -81,7 +110,7 @@ Each request attempts up to 10 changes within 45 seconds and hands the rest back
 
 ## Page caches
 
-A request that applies something, or finds it already in place, purges the pages it changed, once, during the request, after Yoast has rebuilt what the page prints. A dry run never does.
+A request that applies something, or finds it already in place, purges the pages it changed, once, during the request, after Yoast has rebuilt what the page prints. Alt text written to the media library shows wherever the image does, so that clears the whole cache instead. A dry run never purges anything.
 
 | Plugin | What is purged | How it was checked |
 | --- | --- | --- |
@@ -108,6 +137,8 @@ This is optional. Add Altimiser's address on **Settings > Altimiser**, or in `wp
 ```php
 define('ALTIMISER_URL', 'https://altimiser.example.com');
 ```
+
+The address has to start with `https://`, except for `localhost` or a `.test` address on a development machine.
 
 Each editor connects their own Altimiser account once, from that page. **Connect** opens Altimiser, which asks them to sign in and to approve the connection, then sends them back. Altimiser decides what they can do in the queue from their account, so an editor without an account, or whose account has not been given the site, gets no further than the **Connect** button. A connection lasts twelve hours for an agency account and thirty days for a client account, after which the page offers to connect again. **Disconnect** forgets it straight away. Connecting needs wp-admin to be on the same address as the site's URL.
 
@@ -142,7 +173,7 @@ To publish a release, change `Version` in `altimiser.php` on `main`, then push a
 
 ## Uninstalling
 
-Deleting the plugin removes its settings, the counts it keeps and every editor's connection, on every site of a network. Changes it applied are the site's content by then, and stay.
+Deleting the plugin removes its settings, the counts it keeps and every editor's connection, on every site of a network. Changes it applied are the site's content by then, and stay, except a sitemap declared in the `robots.txt` WordPress prints, which only the plugin printed.
 
 ## When the connection fails
 
@@ -165,7 +196,7 @@ Two common security plugins need nothing doing. From reading their source, and n
 
 ## Testing
 
-The tests run against a real WordPress, which Composer installs into `wordpress/`, and a real Yoast SEO from wpackagist, in `vendor/wp-plugins/`. They need MySQL as `root` with no password, at `127.0.0.1` unless `WP_TESTS_DB_HOST` says otherwise, in a database named `altimiser_wordpress_tests` unless `WP_TESTS_DB_NAME` says otherwise.
+The tests run against a real WordPress, which Composer installs into `wordpress/`, and real Yoast SEO and Advanced Custom Fields from wpackagist, in `vendor/wp-plugins/`. They need MySQL as `root` with no password, at `127.0.0.1` unless `WP_TESTS_DB_HOST` says otherwise, in a database named `altimiser_wordpress_tests` unless `WP_TESTS_DB_NAME` says otherwise.
 
 ```bash
 composer install

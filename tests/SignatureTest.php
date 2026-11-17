@@ -22,13 +22,14 @@ class SignatureTest extends ReceiverTestCase
         );
     }
 
-    public function test_logs_a_refused_request_that_carried_a_signature_and_not_one_without(): void
+    public function test_logs_one_refused_signed_request_a_minute_and_none_without_a_signature(): void
     {
         $log = (string) tempnam(sys_get_temp_dir(), 'altimiser');
         $previous = ini_set('error_log', $log);
 
         $this->dispatch($this->request());
         $this->dispatch($this->signedRequest(secret: 'not-the-secret'));
+        $this->dispatch($this->signedRequest(secret: 'not-the-secret-either'));
 
         ini_set('error_log', (string) $previous);
         $logged = (string) file_get_contents($log);

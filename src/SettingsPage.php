@@ -43,7 +43,8 @@ class SettingsPage
     public function sanitise(mixed $input): array
     {
         $input = is_array($input) ? $input : [];
-        $saved = Settings::stored()['secret'] ?? '';
+        $stored = Settings::stored();
+        $saved = $stored['secret'] ?? '';
         $secret = trim((string) ($input['secret'] ?? ''));
 
         if ($secret !== '' && ! Settings::secretIsLongEnough($secret)) {
@@ -56,8 +57,16 @@ class SettingsPage
             $secret = '';
         }
 
+        $url = esc_url_raw(trim((string) ($input['altimiser_url'] ?? '')), ['https', 'http']);
+
+        if ($url !== '' && ! Settings::isSecureAddress($url)) {
+            add_settings_error(Settings::$option, 'altimiser_url_not_https', __('The Altimiser address needs to start with https://, so it was not changed.', 'altimiser'));
+
+            $url = $stored['altimiser_url'] ?? '';
+        }
+
         return array_filter([
-            'altimiser_url' => esc_url_raw(trim((string) ($input['altimiser_url'] ?? '')), ['https', 'http']),
+            'altimiser_url' => $url,
             'secret' => $secret === '' ? $saved : $secret,
         ]);
     }

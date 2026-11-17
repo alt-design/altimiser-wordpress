@@ -57,8 +57,9 @@ class ChangeDispatcher
     }
 
     /**
-     * A change stored as a default shows on every page of its kind, so it clears the
-     * whole cache. Anything else clears the page it was made for.
+     * A change stored as a default shows on every page of its kind, and alt text in the
+     * media library on every page that prints the image, so either clears the whole
+     * cache. Anything else clears the page it was made for.
      *
      * @param  array<int, array{0: string, 1: array<string, mixed>}>  $landed
      */
@@ -69,7 +70,7 @@ class ChangeDispatcher
         }
 
         foreach ($landed as [, $location]) {
-            if (($location['default'] ?? false) === true) {
+            if (($location['default'] ?? false) === true || ($location['type'] ?? null) === 'asset') {
                 $this->pageCache->purgeEverything();
 
                 return;
