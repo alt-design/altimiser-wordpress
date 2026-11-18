@@ -489,6 +489,68 @@ class YoastFieldsTest extends ReceiverTestCase
         $this->assertSame('About us.', WPSEO_Options::get('metadesc-ptarchive-new-boat'));
     }
 
+    public function test_treats_a_post_type_archives_unsaved_default_title_as_inherited(): void
+    {
+        $this->registerArchive();
+        $rendered = wpseo_replace_vars(WPSEO_Option_Titles::get_instance()->get_defaults()['title-ptarchive-new-boat'], ['post_type' => 'new-boat']);
+
+        $result = $this->sendOne([
+            'check' => 'title.too_short',
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => $rendered,
+            'suggested_value' => 'New boats for sale',
+        ]);
+        $revert = $this->sendOne([
+            'check' => 'title.too_short',
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => 'New boats for sale',
+            'suggested_value' => $rendered,
+        ]);
+
+        $stored = WPSEO_Options::get('title-ptarchive-new-boat');
+        $this->unregisterArchive();
+
+        $this->assertTrue($result['location']['inherited']);
+        $this->assertArrayNotHasKey('from', $result);
+        $this->assertSame('applied', $revert['status']);
+        $this->assertSame('', $stored);
+    }
+
+    public function test_skips_an_archive_setting_yoast_has_no_key_for(): void
+    {
+        $this->registerArchive();
+        $change = ['url' => home_url('/new-boat-sales/'), 'check' => 'meta_description.missing', 'current_value' => null];
+        $settings = get_option('wpseo_titles');
+        unset($settings['metadesc-ptarchive-new-boat']);
+        add_filter('option_wpseo_titles', static fn () => $settings, 99);
+
+        $result = $this->sendOne($change);
+
+        $this->unregisterArchive();
+
+        $this->assertSame('no_field', $result['reason']);
+        $this->assertSame('', WPSEO_Options::get('metadesc-ptarchive-new-boat', ''));
+    }
+
+    public function test_does_not_take_an_address_on_another_host_for_the_page(): void
+    {
+        $this->storeDescription('About us.');
+
+        $result = $this->sendOne(['url' => 'https://elsewhere.example.net/about/']);
+
+        $this->assertSame('not_found', $result['reason']);
+    }
+
+    public function test_takes_a_www_host_for_the_same_page(): void
+    {
+        $this->storeDescription('About us.');
+        $host = parse_url(home_url(), PHP_URL_HOST);
+
+        $result = $this->sendOne(['url' => "https://www.{$host}/about/"]);
+
+        $this->assertSame('applied', $result['status']);
+    }
+
     public function test_writes_nothing_to_an_archive_on_a_dry_run(): void
     {
         $this->registerArchive();

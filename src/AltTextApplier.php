@@ -86,7 +86,7 @@ class AltTextApplier implements Applier
      */
     private function applyToContentOnly(ChangeRequest $change, string $source, string $suggested, bool $dryRun): array
     {
-        $post = $this->editablePost($change->url);
+        $post = $source === '' || str_starts_with(strtolower($source), 'data:') ? null : $this->editablePost($change->url);
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
             : $this->rewrite($post->post_content, 0, $source, trim($change->currentValue ?? ''), $suggested);
@@ -140,12 +140,13 @@ class AltTextApplier implements Applier
     {
         $tags = new WP_HTML_Tag_Processor($html);
         $sourcePath = $this->path($source);
+        $sourceAddress = $this->address($source);
         $changed = false;
         $already = false;
         $found = false;
 
         while ($tags->next_tag('img')) {
-            if (! $tags->has_class("wp-image-{$attachmentId}") && $this->path((string) $tags->get_attribute('src')) !== $sourcePath) {
+            if (! $this->showsImage($tags->has_class("wp-image-{$attachmentId}"), (string) $tags->get_attribute('src'), $attachmentId, $sourcePath, $sourceAddress)) {
                 continue;
             }
 
@@ -162,10 +163,10 @@ class AltTextApplier implements Applier
 
         $html = preg_replace_callback(
             '/<!--\s+wp:cover\s+(\{.*?\})\s+(\/?)-->/s',
-            function (array $comment) use ($attachmentId, $sourcePath, $current, $suggested, &$changed): string {
+            function (array $comment) use ($attachmentId, $sourceAddress, $current, $suggested, &$changed): string {
                 $attributes = json_decode($comment[1], true);
 
-                if (! is_array($attributes) || ! $this->coverShows($attributes, $attachmentId, $sourcePath) || trim((string) ($attributes['alt'] ?? '')) !== $current || $current === $suggested) {
+                if (! is_array($attributes) || ! $this->coverShows($attributes, $attachmentId, $sourceAddress) || trim((string) ($attributes['alt'] ?? '')) !== $current || $current === $suggested) {
                     return $comment[0];
                 }
 
@@ -181,15 +182,32 @@ class AltTextApplier implements Applier
     }
 
     /**
-     * @param  array<string, mixed>  $attributes
+     * An image in the media library is recognised by its class or by where its file is,
+     * whatever host serves it. One that is not in the library has nothing but its
+     * address, so the host and the query count as well, and an image with no address
+     * is never taken for it.
      */
-    private function coverShows(array $attributes, int $attachmentId, string $sourcePath): bool
+    private function showsImage(bool $hasClass, string $src, int $attachmentId, string $sourcePath, string $sourceAddress): bool
     {
-        if ($attachmentId !== 0 && ($attributes['id'] ?? null) === $attachmentId) {
-            return true;
+        if ($attachmentId !== 0) {
+            return $hasClass || $this->path($src) === $sourcePath;
         }
 
-        return $attachmentId === 0 && $this->path((string) ($attributes['url'] ?? '')) === $sourcePath;
+        return $src !== '' && $this->address($src) === $sourceAddress;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function coverShows(array $attributes, int $attachmentId, string $sourceAddress): bool
+    {
+        if ($attachmentId !== 0) {
+            return ($attributes['id'] ?? null) === $attachmentId;
+        }
+
+        $url = (string) ($attributes['url'] ?? '');
+
+        return $url !== '' && $this->address($url) === $sourceAddress;
     }
 
     /**
@@ -228,6 +246,18 @@ class AltTextApplier implements Applier
     private function path(string $url): string
     {
         return rawurldecode((string) parse_url($url, PHP_URL_PATH));
+    }
+
+    /**
+     * An address without a host is on this site, and a leading www. does not make it
+     * another one.
+     */
+    private function address(string $url): string
+    {
+        $host = (string) (parse_url($url, PHP_URL_HOST) ?: parse_url(home_url(), PHP_URL_HOST));
+        $host = (string) preg_replace('/^www\./', '', strtolower($host));
+
+        return $host.'|'.$this->path($url).'?'.parse_url($url, PHP_URL_QUERY);
     }
 
     /**
