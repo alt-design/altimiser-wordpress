@@ -3,6 +3,7 @@
 namespace AltDesign\Altimiser;
 
 use WP_Post;
+use WP_Post_Type;
 use WP_Term;
 
 class ContentResolver
@@ -12,10 +13,44 @@ class ContentResolver
         $postId = url_to_postid($url);
 
         if ($postId === 0) {
+            $postId = $this->postsPageAt($url);
+        }
+
+        if ($postId === 0) {
             return $this->findTerm($url);
         }
 
         return $this->isPublishedAt($url, $postId) ? get_post($postId) : null;
+    }
+
+    public function findArchive(string $url): ?WP_Post_Type
+    {
+        foreach (get_post_types(['public' => true, 'has_archive' => true], 'objects') as $type) {
+            $link = get_post_type_archive_link($type->name);
+
+            if (is_string($link) && $this->address($link) === $this->address($url)) {
+                return $type;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * url_to_postid() has no answer for the page chosen to list the blog, because its
+     * address is the posts index and not the page's own rewrite rule.
+     */
+    private function postsPageAt(string $url): int
+    {
+        $pageId = (int) get_option('page_for_posts');
+
+        if ($pageId === 0 || get_option('show_on_front') !== 'page') {
+            return 0;
+        }
+
+        $link = get_permalink($pageId);
+
+        return is_string($link) && $this->address($link) === $this->address($url) ? $pageId : 0;
     }
 
     /**

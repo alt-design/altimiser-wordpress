@@ -147,6 +147,83 @@ class AltTextTest extends ReceiverTestCase
         $this->assertSame('no_match', $result['reason']);
     }
 
+    public function test_writes_alt_text_into_the_page_for_an_image_outside_the_media_library(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"{$source}\" alt=\"\" class=\"wp-image-98765\"/></figure>\n<!-- /wp:image -->");
+
+        $result = $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame(['type' => 'post', 'id' => $this->pageId, 'collection' => 'page', 'field' => 'post_content'], $result['location']);
+        $this->assertStringContainsString('alt="Boats moored in the harbour at dusk"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_adds_the_alt_attribute_to_an_outside_image_that_has_none(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertStringContainsString('alt="Boats moored in the harbour at dusk"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_reverts_and_resends_for_an_outside_image(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\" alt=\"\"></p>");
+        $this->sendAlt(['target' => $this->target($source)]);
+
+        $again = $this->sendAlt(['target' => $this->target($source)]);
+        $revert = $this->sendAlt([
+            'target' => $this->target($source),
+            'current_value' => 'Boats moored in the harbour at dusk',
+            'suggested_value' => 'Old quay',
+        ]);
+
+        $this->assertSame('already_applied', $again['status']);
+        $this->assertSame('applied', $revert['status']);
+        $this->assertStringContainsString('alt="Old quay"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_leaves_an_outside_images_own_wording_alone(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\" alt=\"The quay\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('value_changed', $result['reason']);
+        $this->assertStringContainsString('alt="The quay"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_writes_nothing_to_an_outside_image_on_a_dry_run(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\" alt=\"\"></p>");
+
+        $result = $this->send([$this->altChange(['target' => $this->target($source)])], true)[0];
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertStringContainsString('alt=""', get_post($this->pageId)->post_content);
+    }
+
+    public function test_writes_the_alt_attribute_of_an_outside_cover_block_as_well(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent(
+            "<!-- wp:cover {\"url\":\"{$source}\",\"id\":98765,\"alt\":\"\"} -->\n"
+            ."<div class=\"wp-block-cover\"><img class=\"wp-block-cover__image-background wp-image-98765\" alt=\"\" src=\"{$source}\"/>"
+            ."<div class=\"wp-block-cover__inner-container\"></div></div>\n<!-- /wp:cover -->",
+        );
+
+        $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('Boats moored in the harbour at dusk', parse_blocks(get_post($this->pageId)->post_content)[0]['attrs']['alt']);
+    }
+
     public function test_skips_a_change_with_no_alt_text_to_write(): void
     {
         $this->assertSame('no_suggestion', $this->sendAlt(['suggested_value' => null])['reason']);

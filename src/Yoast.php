@@ -3,6 +3,7 @@
 namespace AltDesign\Altimiser;
 
 use WP_Post;
+use WP_Post_Type;
 use WP_Term;
 use WPSEO_Meta;
 use WPSEO_Option_Titles;
@@ -23,8 +24,12 @@ class Yoast
         return WPSEO_Options::get('opengraph') === true;
     }
 
-    public function stored(WP_Post|WP_Term $record, string $field): string
+    public function stored(WP_Post|WP_Post_Type|WP_Term $record, string $field): string
     {
+        if ($record instanceof WP_Post_Type) {
+            return (string) WPSEO_Options::get($this->archiveKey($record, $field), '');
+        }
+
         $value = $record instanceof WP_Post
             ? get_post_meta($record->ID, WPSEO_Meta::$meta_prefix.$field, true)
             : WPSEO_Taxonomy_Meta::get_term_meta($record, $record->taxonomy, $this->termField($field));
@@ -36,8 +41,14 @@ class Yoast
      * What Yoast falls back to when the record has no value of its own, in the order
      * its presentations use: a title always has a default, a description may not.
      */
-    public function template(WP_Post|WP_Term $record, string $field): string
+    public function template(WP_Post|WP_Post_Type|WP_Term $record, string $field): string
     {
+        if ($record instanceof WP_Post_Type) {
+            return $field === 'title'
+                ? (WPSEO_Option_Titles::get_instance()->get_defaults()[$this->archiveKey($record, $field)] ?? '')
+                : '';
+        }
+
         $subject = $record instanceof WP_Post ? $record->post_type : "tax-{$record->taxonomy}";
 
         return match ($field) {
@@ -48,20 +59,28 @@ class Yoast
         };
     }
 
-    public function render(string $value, WP_Post|WP_Term $record): string
+    public function render(string $value, WP_Post|WP_Post_Type|WP_Term $record): string
     {
-        return wpseo_replace_vars($value, $record);
+        return wpseo_replace_vars($value, $record instanceof WP_Post_Type ? ['post_type' => $record->name] : $record);
     }
 
-    public function storageKey(WP_Post|WP_Term $record, string $field): string
+    public function storageKey(WP_Post|WP_Post_Type|WP_Term $record, string $field): string
     {
-        return $record instanceof WP_Post
-            ? WPSEO_Meta::$meta_prefix.$field
-            : "wpseo_{$this->termField($field)}";
+        return match (true) {
+            $record instanceof WP_Post => WPSEO_Meta::$meta_prefix.$field,
+            $record instanceof WP_Post_Type => $this->archiveKey($record, $field),
+            default => "wpseo_{$this->termField($field)}",
+        };
     }
 
-    public function write(WP_Post|WP_Term $record, string $field, string $value): void
+    public function write(WP_Post|WP_Post_Type|WP_Term $record, string $field, string $value): void
     {
+        if ($record instanceof WP_Post_Type) {
+            WPSEO_Options::set($this->archiveKey($record, $field), $value);
+
+            return;
+        }
+
         if ($record instanceof WP_Post) {
             WPSEO_Meta::set_value($field, $value, $record->ID);
             $this->rebuildPost($record);
@@ -72,8 +91,14 @@ class Yoast
         $this->writeTerm($record, $field, $value);
     }
 
-    public function clear(WP_Post|WP_Term $record, string $field): void
+    public function clear(WP_Post|WP_Post_Type|WP_Term $record, string $field): void
     {
+        if ($record instanceof WP_Post_Type) {
+            WPSEO_Options::set($this->archiveKey($record, $field), '');
+
+            return;
+        }
+
         if ($record instanceof WP_Post) {
             delete_post_meta($record->ID, WPSEO_Meta::$meta_prefix.$field);
             $this->rebuildPost($record);
@@ -82,6 +107,21 @@ class Yoast
         }
 
         $this->writeTerm($record, $field, '');
+    }
+
+    /**
+     * A post type's archive has no record of its own, so Yoast keeps its title,
+     * description and social text in the wpseo_titles option, and rebuilds the
+     * archive's indexable when that option changes.
+     */
+    private function archiveKey(WP_Post_Type $type, string $field): string
+    {
+        return match ($field) {
+            'metadesc' => "metadesc-ptarchive-{$type->name}",
+            'opengraph-title' => "social-title-ptarchive-{$type->name}",
+            'opengraph-description' => "social-description-ptarchive-{$type->name}",
+            default => "title-ptarchive-{$type->name}",
+        };
     }
 
     private function termField(string $field): string

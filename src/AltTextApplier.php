@@ -40,18 +40,14 @@ class AltTextApplier implements Applier
         $attachmentId = $this->attachment($source);
 
         if ($attachmentId === 0) {
-            return ChangeResult::skipped(
-                $change->id,
-                'no_match',
-                "No image in the media library matches {$source}, so there is nowhere to keep its alt text. It may come from the theme or another site.",
-            );
+            return $this->applyToContentOnly($change, $source, $suggested, $dryRun);
         }
 
         $current = trim($change->currentValue ?? '');
         $stored = trim((string) get_post_meta($attachmentId, $this->metaKey, true));
         $post = $this->editablePost($change->url);
         $copy = $post === null
-            ? ['html' => '', 'changed' => false, 'already' => false]
+            ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
             : $this->rewrite($post->post_content, $attachmentId, $source, $current, $suggested);
         $writesLibrary = $stored === $current && $stored !== $suggested;
 
@@ -82,6 +78,46 @@ class AltTextApplier implements Applier
         return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
     }
 
+    /**
+     * An image that is not in the media library, such as one copied in from another
+     * site, has only the tag in the page to write to.
+     *
+     * @return array<string, mixed>
+     */
+    private function applyToContentOnly(ChangeRequest $change, string $source, string $suggested, bool $dryRun): array
+    {
+        $post = $this->editablePost($change->url);
+        $copy = $post === null
+            ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
+            : $this->rewrite($post->post_content, 0, $source, trim($change->currentValue ?? ''), $suggested);
+
+        if (! $copy['found']) {
+            return ChangeResult::skipped(
+                $change->id,
+                'no_match',
+                "No image in the media library matches {$source}, and this page's content has no image tag for it, so there is nowhere to keep its alt text. It may come from the theme or a page builder.",
+            );
+        }
+
+        $location = $this->location(0, false, $post);
+
+        if (! $copy['changed']) {
+            return $copy['already']
+                ? ChangeResult::alreadyApplied($change->id, $location, 'This image already has this alt text.')
+                : ChangeResult::skipped($change->id, 'value_changed', "This page's copy of the image does not hold the alt text the scan saw, so somebody has changed it since.");
+        }
+
+        if ($dryRun) {
+            return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
+        }
+
+        if (! $this->writer->updatePost($post->ID, ['post_content' => $copy['html']])) {
+            return ChangeResult::failed($change->id, 'write_failed', "WordPress did not save this page's copy of the image's alt text.");
+        }
+
+        return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
+    }
+
     private function editablePost(string $url): ?WP_Post
     {
         $post = $this->content->find($url);
@@ -98,7 +134,7 @@ class AltTextApplier implements Applier
      * in the block's attributes as well, and the editor flags the block as broken when
      * the two disagree.
      *
-     * @return array{html: string, changed: bool, already: bool}
+     * @return array{html: string, changed: bool, already: bool, found: bool}
      */
     private function rewrite(string $html, int $attachmentId, string $source, string $current, string $suggested): array
     {
@@ -106,12 +142,14 @@ class AltTextApplier implements Applier
         $sourcePath = $this->path($source);
         $changed = false;
         $already = false;
+        $found = false;
 
         while ($tags->next_tag('img')) {
             if (! $tags->has_class("wp-image-{$attachmentId}") && $this->path((string) $tags->get_attribute('src')) !== $sourcePath) {
                 continue;
             }
 
+            $found = true;
             $alt = $tags->get_attribute('alt');
             $alt = is_string($alt) ? trim($alt) : '';
             $already = $already || $alt === $suggested;
@@ -124,10 +162,10 @@ class AltTextApplier implements Applier
 
         $html = preg_replace_callback(
             '/<!--\s+wp:cover\s+(\{.*?\})\s+(\/?)-->/s',
-            static function (array $comment) use ($attachmentId, $current, $suggested, &$changed): string {
+            function (array $comment) use ($attachmentId, $sourcePath, $current, $suggested, &$changed): string {
                 $attributes = json_decode($comment[1], true);
 
-                if (! is_array($attributes) || ($attributes['id'] ?? null) !== $attachmentId || trim((string) ($attributes['alt'] ?? '')) !== $current || $current === $suggested) {
+                if (! is_array($attributes) || ! $this->coverShows($attributes, $attachmentId, $sourcePath) || trim((string) ($attributes['alt'] ?? '')) !== $current || $current === $suggested) {
                     return $comment[0];
                 }
 
@@ -139,7 +177,19 @@ class AltTextApplier implements Applier
             $tags->get_updated_html(),
         ) ?? $html;
 
-        return ['html' => $html, 'changed' => $changed, 'already' => $already];
+        return ['html' => $html, 'changed' => $changed, 'already' => $already, 'found' => $found];
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function coverShows(array $attributes, int $attachmentId, string $sourcePath): bool
+    {
+        if ($attachmentId !== 0 && ($attributes['id'] ?? null) === $attachmentId) {
+            return true;
+        }
+
+        return $attachmentId === 0 && $this->path((string) ($attributes['url'] ?? '')) === $sourcePath;
     }
 
     /**
