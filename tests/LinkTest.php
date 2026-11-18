@@ -117,7 +117,12 @@ class LinkTest extends ReceiverTestCase
     {
         $this->setContent('<p>Nothing about covenants here.</p>');
         $this->registerSections();
-        update_field('field_altimiser_sections', [['field_altimiser_body' => '<p>The restrictive covenant clause, explained.</p>']], $this->pageId);
+        $this->storeMeta([
+            'sections' => '1',
+            '_sections' => 'field_altimiser_sections',
+            'sections_0_body' => '<p>The restrictive covenant clause, explained.</p>',
+            '_sections_0_body' => 'field_altimiser_body',
+        ]);
 
         $result = $this->sendLink();
 
@@ -125,8 +130,9 @@ class LinkTest extends ReceiverTestCase
         $this->assertSame('sections', $result['location']['field']);
         $this->assertSame(
             '<p><a href="/insights/restrictive-covenant-clause">The restrictive covenant clause</a>, explained.</p>',
-            get_field('sections', $this->pageId, false)[0]['field_altimiser_body'],
+            get_post_meta($this->pageId, 'sections_0_body', true),
         );
+        $this->assertEqualsCanonicalizing(['sections', '_sections', 'sections_0_body', '_sections_0_body'], array_keys($this->metaRows()));
     }
 
     public function test_finds_a_mention_stored_with_entities_or_typed_with_straight_quotes(): void
@@ -172,6 +178,159 @@ class LinkTest extends ReceiverTestCase
             '<p><a href="/insights/restrictive-covenant-clause">The restrictive covenant clause</a>, explained.</p>',
             get_field('intro', $this->pageId, false)['field_altimiser_intro_text'],
         );
+    }
+
+    public function test_links_one_sub_field_of_flexible_content_and_adds_no_meta(): void
+    {
+        $this->setContent('<p>Nothing about covenants here.</p>');
+        $this->seedFlexibleContent();
+        $before = $this->metaRows();
+        get_field('flexible_content', $this->pageId, false);
+
+        $result = $this->sendLink();
+        $after = $this->metaRows();
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('flexible_content', $result['location']['field']);
+        $this->assertSame(['flexible_content_1_body'], array_keys(array_diff_assoc($after, $before)));
+        $this->assertSame(array_keys($before), array_keys($after));
+        $this->assertSame(
+            '<p>Café <a href="/insights/restrictive-covenant-clause">The restrictive covenant clause</a> résumé, 東京.</p>',
+            get_post_meta($this->pageId, 'flexible_content_1_body', true),
+        );
+        $this->assertSame(
+            '<p>Café <a href="/insights/restrictive-covenant-clause">The restrictive covenant clause</a> résumé, 東京.</p>',
+            get_field('flexible_content', $this->pageId, false)['row-1']['field_altimiser_fc_body'],
+        );
+    }
+
+    public function test_reverting_a_flexible_content_link_restores_the_meta_exactly(): void
+    {
+        $this->setContent('<p>Nothing about covenants here.</p>');
+        $this->seedFlexibleContent();
+        $before = $this->metaRows();
+
+        $this->sendLink();
+        $revert = $this->sendLink([
+            'current_value' => 'https://example.org/insights/restrictive-covenant-clause',
+            'suggested_value' => 'The restrictive covenant clause',
+        ]);
+
+        $this->assertSame('applied', $revert['status']);
+        $this->assertSame($before, $this->metaRows());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function metaRows(): array
+    {
+        global $wpdb;
+
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key", $this->pageId), ARRAY_A);
+
+        return array_column($rows, 'meta_value', 'meta_key');
+    }
+
+    private function seedFlexibleContent(): void
+    {
+        acf_add_local_field_group([
+            'key' => 'group_altimiser_flexible',
+            'title' => 'Flexible',
+            'fields' => [[
+                'key' => 'field_altimiser_fc',
+                'name' => 'flexible_content',
+                'type' => 'flexible_content',
+                'layouts' => [
+                    'layout_altimiser_text' => [
+                        'key' => 'layout_altimiser_text',
+                        'name' => 'text',
+                        'label' => 'Text',
+                        'sub_fields' => [
+                            ['key' => 'field_altimiser_fc_show', 'name' => 'show_table', 'type' => 'true_false'],
+                            ['key' => 'field_altimiser_fc_body', 'name' => 'body', 'type' => 'wysiwyg'],
+                            [
+                                'key' => 'field_altimiser_fc_table',
+                                'name' => 'table',
+                                'type' => 'wysiwyg',
+                                'conditional_logic' => [[['field' => 'field_altimiser_fc_show', 'operator' => '==', 'value' => '1']]],
+                            ],
+                        ],
+                    ],
+                ],
+            ]],
+            'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]],
+        ]);
+
+        $meta = [
+            'flexible_content' => ['text', 'text'],
+            '_flexible_content' => 'field_altimiser_fc',
+            'flexible_content_0_show_table' => '0',
+            '_flexible_content_0_show_table' => 'field_altimiser_fc_show',
+            'flexible_content_0_body' => '<p>Intro.</p>',
+            '_flexible_content_0_body' => 'field_altimiser_fc_body',
+            'flexible_content_1_show_table' => '0',
+            '_flexible_content_1_show_table' => 'field_altimiser_fc_show',
+            'flexible_content_1_body' => '<p>Café The restrictive covenant clause résumé, 東京.</p>',
+            '_flexible_content_1_body' => 'field_altimiser_fc_body',
+        ];
+
+        $this->storeMeta($meta);
+    }
+
+    /**
+     * @param  array<string, string|array<int, string>>  $meta
+     */
+    private function storeMeta(array $meta): void
+    {
+        foreach ($meta as $key => $value) {
+            update_post_meta($this->pageId, $key, $value);
+        }
+
+        $this->emulateRowLoading();
+    }
+
+    private function emulateRowLoading(): void
+    {
+        $rows = function (mixed $value, int $postId, array $field): array {
+            $layouts = $field['type'] === 'flexible_content' ? $value : array_fill(0, (int) $value, null);
+            $loaded = [];
+
+            foreach ((array) $layouts as $index => $layout) {
+                $subFields = $layout === null ? $field['sub_fields'] : $this->layoutSubFields($field, $layout);
+                $row = $layout === null ? [] : ['acf_fc_layout' => $layout];
+
+                foreach ($subFields as $subField) {
+                    $stored = get_post_meta($postId, "{$field['name']}_{$index}_{$subField['name']}");
+
+                    if ($stored !== []) {
+                        $row[$subField['key']] = $stored[0];
+                    }
+                }
+
+                $loaded["row-{$index}"] = $row;
+            }
+
+            return $loaded;
+        };
+
+        add_filter('acf/load_value/type=repeater', $rows, 10, 3);
+        add_filter('acf/load_value/type=flexible_content', $rows, 10, 3);
+    }
+
+    /**
+     * @param  array<string, mixed>  $field
+     * @return array<int, array<string, mixed>>
+     */
+    private function layoutSubFields(array $field, string $name): array
+    {
+        foreach ($field['layouts'] as $layout) {
+            if ($layout['name'] === $name) {
+                return $layout['sub_fields'];
+            }
+        }
+
+        return [];
     }
 
     public function test_leaves_a_page_built_with_elementor_alone(): void

@@ -150,13 +150,15 @@ class LinkApplier implements Applier
 
         foreach ($this->acfFields($post->ID) as $field) {
             $value = $field['value'];
-            $outcome = $this->visit($value, $field, $rewrite);
+            $written = null;
+            $outcome = $this->visit($value, $field, (string) $field['name'], $rewrite, $written);
 
             if ($outcome !== null) {
                 return [
                     'outcome' => $outcome,
                     'field' => $field['name'],
-                    'save' => fn (): bool => $this->writer->updateField($field['key'], $value, $post->ID),
+                    'save' => fn (): bool => $written !== null
+                        && $this->writer->updateSubField($post->ID, $written['meta_key'], (string) $field['name'], $written['html']),
                 ];
             }
         }
@@ -179,13 +181,14 @@ class LinkApplier implements Applier
     /**
      * @param  array<string, mixed>  $field
      * @param  callable(string): array{outcome: string, html: string}  $rewrite
+     * @param  array{meta_key: string, html: string}|null  $written  Set to the meta row and the new value when prose changed.
      */
-    private function visit(mixed &$value, array $field, callable $rewrite): ?string
+    private function visit(mixed &$value, array $field, string $metaKey, callable $rewrite, ?array &$written): ?string
     {
         $type = $field['type'] ?? null;
 
         if ($type === 'wysiwyg') {
-            return is_string($value) ? $this->rewriteProse($value, $rewrite) : null;
+            return is_string($value) ? $this->rewriteProse($value, $metaKey, $rewrite, $written) : null;
         }
 
         if (! is_array($value)) {
@@ -193,20 +196,20 @@ class LinkApplier implements Applier
         }
 
         if ($type === 'group') {
-            return $this->visitRow($value, $field['sub_fields'] ?? [], $rewrite);
+            return $this->visitRow($value, $field['sub_fields'] ?? [], $metaKey.'_', $rewrite, $written);
         }
 
         if (! in_array($type, ['repeater', 'flexible_content'], true)) {
             return null;
         }
 
-        foreach (array_keys($value) as $index) {
+        foreach (array_keys($value) as $position => $index) {
             if (! is_array($value[$index])) {
                 continue;
             }
 
             $subFields = $type === 'repeater' ? ($field['sub_fields'] ?? []) : $this->layoutFields($field, $value[$index]);
-            $outcome = $this->visitRow($value[$index], $subFields, $rewrite);
+            $outcome = $this->visitRow($value[$index], $subFields, "{$metaKey}_{$position}_", $rewrite, $written);
 
             if ($outcome !== null) {
                 return $outcome;
@@ -218,8 +221,9 @@ class LinkApplier implements Applier
 
     /**
      * @param  callable(string): array{outcome: string, html: string}  $rewrite
+     * @param  array{meta_key: string, html: string}|null  $written
      */
-    private function rewriteProse(string &$value, callable $rewrite): ?string
+    private function rewriteProse(string &$value, string $metaKey, callable $rewrite, ?array &$written): ?string
     {
         $found = $rewrite($value);
 
@@ -228,6 +232,7 @@ class LinkApplier implements Applier
         }
 
         $value = $found['html'];
+        $written = ['meta_key' => $metaKey, 'html' => $found['html']];
 
         return $found['outcome'];
     }
@@ -239,8 +244,9 @@ class LinkApplier implements Applier
      * @param  array<string, mixed>  $row
      * @param  array<int, array<string, mixed>>  $subFields
      * @param  callable(string): array{outcome: string, html: string}  $rewrite
+     * @param  array{meta_key: string, html: string}|null  $written
      */
-    private function visitRow(array &$row, array $subFields, callable $rewrite): ?string
+    private function visitRow(array &$row, array $subFields, string $metaPrefix, callable $rewrite, ?array &$written): ?string
     {
         foreach ($subFields as $subField) {
             $key = array_key_exists($subField['key'] ?? '', $row) ? $subField['key'] : ($subField['name'] ?? '');
@@ -249,7 +255,7 @@ class LinkApplier implements Applier
                 continue;
             }
 
-            $outcome = $this->visit($row[$key], $subField, $rewrite);
+            $outcome = $this->visit($row[$key], $subField, $metaPrefix.($subField['name'] ?? ''), $rewrite, $written);
 
             if ($outcome !== null) {
                 return $outcome;

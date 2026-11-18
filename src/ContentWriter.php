@@ -29,34 +29,26 @@ class ContentWriter
     }
 
     /**
-     * ACF unslashes on save as WordPress does, expecting what a form posts. It answers
-     * false for a group or flexible content field whose sub fields were saved, because
-     * the parent's own stored value did not change, so what was written is read back.
-     */
-    public function updateField(string $fieldKey, mixed $value, int $postId): bool
-    {
-        return update_field($fieldKey, wp_slash($value), $postId)
-            || $this->leaves(get_field($fieldKey, $postId, false)) === $this->leaves($value);
-    }
-
-    /**
-     * Rows read back may be keyed by field key where they were written by name, so only
-     * the values are compared.
+     * Saving an ACF field through update_field writes every sub field of the parent,
+     * which stores an empty value for each one a row never had, so the one value that
+     * changed is written to its own meta row instead. ACF keeps nested values under
+     * the parent's name, the row and the sub field's name, such as sections_2_body.
+     * WordPress unslashes meta on save, so the value is slashed first.
      *
-     * @return array<int, string>
+     * @param  string  $fieldName  The top level ACF field the value sits in.
      */
-    private function leaves(mixed $value): array
+    public function updateSubField(int $postId, string $metaKey, string $fieldName, string $value): bool
     {
-        $leaves = [];
-        $value = is_array($value) ? $value : [$value];
+        update_post_meta($postId, $metaKey, wp_slash($value));
 
-        array_walk_recursive($value, static function (mixed $leaf) use (&$leaves): void {
-            $leaves[] = (string) $leaf;
-        });
+        clean_post_cache($postId);
 
-        sort($leaves);
+        if (function_exists('acf_flush_value_cache')) {
+            acf_flush_value_cache($postId, $fieldName);
+            acf_flush_value_cache($postId, $metaKey);
+        }
 
-        return $leaves;
+        return get_post_meta($postId, $metaKey, true) === $value;
     }
 
     /**
