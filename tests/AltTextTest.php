@@ -147,6 +147,137 @@ class AltTextTest extends ReceiverTestCase
         $this->assertSame('no_match', $result['reason']);
     }
 
+    public function test_writes_alt_text_into_the_page_for_an_image_outside_the_media_library(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"{$source}\" alt=\"\" class=\"wp-image-98765\"/></figure>\n<!-- /wp:image -->");
+
+        $result = $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame(['type' => 'post', 'id' => $this->pageId, 'collection' => 'page', 'field' => 'post_content'], $result['location']);
+        $this->assertStringContainsString('alt="Boats moored in the harbour at dusk"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_adds_the_alt_attribute_to_an_outside_image_that_has_none(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertStringContainsString('alt="Boats moored in the harbour at dusk"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_reverts_and_resends_for_an_outside_image(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\" alt=\"\"></p>");
+        $this->sendAlt(['target' => $this->target($source)]);
+
+        $again = $this->sendAlt(['target' => $this->target($source)]);
+        $revert = $this->sendAlt([
+            'target' => $this->target($source),
+            'current_value' => 'Boats moored in the harbour at dusk',
+            'suggested_value' => 'Old quay',
+        ]);
+
+        $this->assertSame('already_applied', $again['status']);
+        $this->assertSame('applied', $revert['status']);
+        $this->assertStringContainsString('alt="Old quay"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_leaves_an_outside_images_own_wording_alone(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\" alt=\"The quay\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('value_changed', $result['reason']);
+        $this->assertStringContainsString('alt="The quay"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_writes_nothing_to_an_outside_image_on_a_dry_run(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\" alt=\"\"></p>");
+
+        $result = $this->send([$this->altChange(['target' => $this->target($source)])], true)[0];
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertStringContainsString('alt=""', get_post($this->pageId)->post_content);
+    }
+
+    public function test_writes_the_alt_attribute_of_an_outside_cover_block_as_well(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent(
+            "<!-- wp:cover {\"url\":\"{$source}\",\"id\":98765,\"alt\":\"\"} -->\n"
+            ."<div class=\"wp-block-cover\"><img class=\"wp-block-cover__image-background wp-image-98765\" alt=\"\" src=\"{$source}\"/>"
+            ."<div class=\"wp-block-cover__inner-container\"></div></div>\n<!-- /wp:cover -->",
+        );
+
+        $this->sendAlt(['target' => $this->target($source)]);
+
+        $this->assertSame('Boats moored in the harbour at dusk', parse_blocks(get_post($this->pageId)->post_content)[0]['attrs']['alt']);
+    }
+
+    public function test_writes_to_no_image_when_the_scan_gave_no_address_for_it(): void
+    {
+        $this->setContent('<p><img alt="" class="a"><img src="" alt=""><img src="https://other-site.example.net/a.jpg" alt=""></p>');
+
+        $result = $this->sendAlt(['target' => $this->target('')]);
+
+        $this->assertSame('no_match', $result['reason']);
+        $this->assertStringNotContainsString('moored', get_post($this->pageId)->post_content);
+    }
+
+    public function test_writes_to_no_image_for_a_data_uri(): void
+    {
+        $uri = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+        $this->setContent("<p><img src=\"{$uri}\" alt=\"\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target($uri)]);
+
+        $this->assertSame('no_match', $result['reason']);
+        $this->assertStringNotContainsString('moored', get_post($this->pageId)->post_content);
+    }
+
+    public function test_tells_two_outside_images_with_the_same_path_on_different_hosts_apart(): void
+    {
+        $this->setContent('<p><img src="https://one.example.net/uploads/quay.jpg" alt=""><img src="https://two.example.net/uploads/quay.jpg" alt=""></p>');
+
+        $this->sendAlt(['target' => $this->target('https://two.example.net/uploads/quay.jpg')]);
+
+        $content = get_post($this->pageId)->post_content;
+
+        $this->assertStringContainsString('<img src="https://one.example.net/uploads/quay.jpg" alt="">', $content);
+        $this->assertStringContainsString('<img src="https://two.example.net/uploads/quay.jpg" alt="Boats moored in the harbour at dusk">', $content);
+    }
+
+    public function test_treats_a_leading_www_as_the_same_host_for_an_outside_image(): void
+    {
+        $this->setContent('<p><img src="https://www.other-site.example.net/uploads/quay.jpg" alt=""></p>');
+
+        $result = $this->sendAlt(['target' => $this->target('https://other-site.example.net/uploads/quay.jpg')]);
+
+        $this->assertSame('applied', $result['status']);
+    }
+
+    public function test_tells_two_outside_images_that_differ_only_in_their_query_apart(): void
+    {
+        $this->setContent('<p><img src="https://other-site.example.net/img.php?id=1" alt=""><img src="https://other-site.example.net/img.php?id=2" alt=""></p>');
+
+        $this->sendAlt(['target' => $this->target('https://other-site.example.net/img.php?id=2')]);
+
+        $content = get_post($this->pageId)->post_content;
+
+        $this->assertStringContainsString('img.php?id=1" alt="">', $content);
+        $this->assertStringContainsString('img.php?id=2" alt="Boats moored', $content);
+    }
+
     public function test_skips_a_change_with_no_alt_text_to_write(): void
     {
         $this->assertSame('no_suggestion', $this->sendAlt(['suggested_value' => null])['reason']);

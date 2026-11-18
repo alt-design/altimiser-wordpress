@@ -3,6 +3,7 @@
 namespace AltDesign\Altimiser;
 
 use WP_Post;
+use WP_Post_Type;
 use WP_Term;
 
 class YoastApplier implements Applier
@@ -48,10 +49,14 @@ class YoastApplier implements Applier
             return ChangeResult::skipped($change->id, 'no_field', "Yoast has no text field for {$change->check} on this tag.");
         }
 
-        $record = $this->content->find($change->url);
+        $record = $this->content->find($change->url) ?? $this->content->findArchive($change->url);
 
         if ($record === null) {
             return ChangeResult::skipped($change->id, 'not_found', "Nothing editable answers to {$change->url}.");
+        }
+
+        if (! $this->yoast->canStore($record, $field)) {
+            return ChangeResult::skipped($change->id, 'no_field', "Yoast keeps no setting for {$this->yoast->storageKey($record, $field)}, so there is nowhere to write it.");
         }
 
         return $this->applyToRecord($change, $record, $field, $dryRun);
@@ -60,7 +65,7 @@ class YoastApplier implements Applier
     /**
      * @return array<string, mixed>
      */
-    private function applyToRecord(ChangeRequest $change, WP_Post|WP_Term $record, string $field, bool $dryRun): array
+    private function applyToRecord(ChangeRequest $change, WP_Post|WP_Post_Type|WP_Term $record, string $field, bool $dryRun): array
     {
         $stored = $this->yoast->stored($record, $field);
         $inherited = $this->yoast->render($this->yoast->template($record, $field), $record);
@@ -156,11 +161,13 @@ class YoastApplier implements Applier
     /**
      * @return array<string, mixed>
      */
-    private function describe(WP_Post|WP_Term $record, string $field): array
+    private function describe(WP_Post|WP_Post_Type|WP_Term $record, string $field): array
     {
-        $identity = $record instanceof WP_Post
-            ? ['type' => 'post', 'id' => $record->ID, 'collection' => $record->post_type]
-            : ['type' => 'term', 'id' => $record->term_id, 'taxonomy' => $record->taxonomy];
+        $identity = match (true) {
+            $record instanceof WP_Post => ['type' => 'post', 'id' => $record->ID, 'collection' => $record->post_type],
+            $record instanceof WP_Post_Type => ['type' => 'setting', 'option' => 'wpseo_titles', 'collection' => $record->name],
+            default => ['type' => 'term', 'id' => $record->term_id, 'taxonomy' => $record->taxonomy],
+        };
 
         return [...$identity, 'field' => $this->yoast->storageKey($record, $field)];
     }

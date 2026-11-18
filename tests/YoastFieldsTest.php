@@ -395,6 +395,202 @@ class YoastFieldsTest extends ReceiverTestCase
         $this->assertSame($this->pageId, $result['location']['id']);
     }
 
+    public function test_resolves_the_page_chosen_to_list_the_blog(): void
+    {
+        $blogId = self::factory()->post->create(['post_type' => 'page', 'post_name' => 'news', 'post_title' => 'News']);
+
+        update_option('show_on_front', 'page');
+        update_option('page_for_posts', $blogId);
+        update_post_meta($blogId, '_yoast_wpseo_metadesc', 'About us.');
+
+        $result = $this->sendOne(['url' => home_url('/news/')]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame($blogId, $result['location']['id']);
+        $this->assertSame('How our studio works, and who we build for.', get_post_meta($blogId, '_yoast_wpseo_metadesc', true));
+    }
+
+    public function test_puts_back_the_blog_pages_description_on_a_revert(): void
+    {
+        $blogId = self::factory()->post->create(['post_type' => 'page', 'post_name' => 'news', 'post_title' => 'News']);
+
+        update_option('show_on_front', 'page');
+        update_option('page_for_posts', $blogId);
+        update_post_meta($blogId, '_yoast_wpseo_metadesc', 'About us.');
+
+        $this->sendOne(['url' => home_url('/news/')]);
+        $result = $this->sendOne([
+            'url' => home_url('/news/'),
+            'current_value' => 'How our studio works, and who we build for.',
+            'suggested_value' => 'About us.',
+        ]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('About us.', get_post_meta($blogId, '_yoast_wpseo_metadesc', true));
+    }
+
+    public function test_writes_a_post_type_archives_description_to_yoasts_settings(): void
+    {
+        $this->registerArchive();
+        WPSEO_Options::set('metadesc-ptarchive-new-boat', 'About us.');
+
+        $result = $this->sendOne(['url' => home_url('/new-boat-sales/')]);
+
+        $this->unregisterArchive();
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('setting', $result['location']['type']);
+        $this->assertSame('new-boat', $result['location']['collection']);
+        $this->assertSame('metadesc-ptarchive-new-boat', $result['location']['field']);
+        $this->assertSame('About us.', $result['from']);
+        $this->assertSame('How our studio works, and who we build for.', WPSEO_Options::get('metadesc-ptarchive-new-boat'));
+    }
+
+    public function test_fills_an_archive_title_the_scan_found_as_yoasts_default(): void
+    {
+        $this->registerArchive();
+        $default = WPSEO_Option_Titles::get_instance()->get_defaults()['title-ptarchive-new-boat'];
+        $rendered = wpseo_replace_vars($default, ['post_type' => 'new-boat']);
+
+        $result = $this->sendOne([
+            'check' => 'title.too_short',
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => $rendered,
+            'suggested_value' => 'New boats for sale',
+        ]);
+
+        $this->unregisterArchive();
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('title-ptarchive-new-boat', $result['location']['field']);
+        $this->assertSame('New boats for sale', WPSEO_Options::get('title-ptarchive-new-boat'));
+    }
+
+    public function test_reverts_a_post_type_archive_and_refuses_once_the_setting_has_moved_on(): void
+    {
+        $this->registerArchive();
+        WPSEO_Options::set('metadesc-ptarchive-new-boat', 'About us.');
+        $this->sendOne(['url' => home_url('/new-boat-sales/')]);
+        $revert = [
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => 'How our studio works, and who we build for.',
+            'suggested_value' => 'About us.',
+        ];
+
+        WPSEO_Options::set('metadesc-ptarchive-new-boat', 'Somebody else wrote this.');
+        $refused = $this->sendOne($revert);
+        WPSEO_Options::set('metadesc-ptarchive-new-boat', 'How our studio works, and who we build for.');
+        $reverted = $this->sendOne($revert);
+
+        $this->unregisterArchive();
+
+        $this->assertSame('value_changed', $refused['reason']);
+        $this->assertSame('applied', $reverted['status']);
+        $this->assertSame('About us.', WPSEO_Options::get('metadesc-ptarchive-new-boat'));
+    }
+
+    public function test_treats_a_post_type_archives_unsaved_default_title_as_inherited(): void
+    {
+        $this->registerArchive();
+        $rendered = wpseo_replace_vars(WPSEO_Option_Titles::get_instance()->get_defaults()['title-ptarchive-new-boat'], ['post_type' => 'new-boat']);
+
+        $result = $this->sendOne([
+            'check' => 'title.too_short',
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => $rendered,
+            'suggested_value' => 'New boats for sale',
+        ]);
+        $revert = $this->sendOne([
+            'check' => 'title.too_short',
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => 'New boats for sale',
+            'suggested_value' => $rendered,
+        ]);
+
+        $stored = WPSEO_Options::get('title-ptarchive-new-boat');
+        $this->unregisterArchive();
+
+        $this->assertTrue($result['location']['inherited']);
+        $this->assertArrayNotHasKey('from', $result);
+        $this->assertSame('applied', $revert['status']);
+        $this->assertSame('', $stored);
+    }
+
+    public function test_skips_an_archive_setting_yoast_has_no_key_for(): void
+    {
+        $this->registerArchive();
+        $change = ['url' => home_url('/new-boat-sales/'), 'check' => 'meta_description.missing', 'current_value' => null];
+        $settings = get_option('wpseo_titles');
+        unset($settings['metadesc-ptarchive-new-boat']);
+        add_filter('option_wpseo_titles', static fn () => $settings, 99);
+
+        $result = $this->sendOne($change);
+
+        $this->unregisterArchive();
+
+        $this->assertSame('no_field', $result['reason']);
+        $this->assertSame('', WPSEO_Options::get('metadesc-ptarchive-new-boat', ''));
+    }
+
+    public function test_matches_a_page_by_its_path_and_query_not_its_host_spelling(): void
+    {
+        $this->storeDescription('About us.');
+        $host = parse_url(home_url(), PHP_URL_HOST);
+
+        foreach (["https://www.{$host}/about/", "http://{$host}/about/", "https://{$host}/about/"] as $url) {
+            $result = $this->sendOne(['url' => $url], true);
+
+            $this->assertSame($this->pageId, $result['location']['id'], $url);
+        }
+    }
+
+    public function test_applies_a_social_title_to_an_untouched_post_type_archive(): void
+    {
+        $this->registerArchive();
+        $default = WPSEO_Option_Titles::get_instance()->get_defaults()['social-title-ptarchive-new-boat'];
+        $scanned = wpseo_replace_vars($default, ['post_type' => 'new-boat']);
+
+        $result = $this->sendOne([
+            'check' => 'open_graph.missing',
+            'target' => ['selector' => 'meta[property="og:title"]', 'attribute' => 'content'],
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => $scanned,
+            'suggested_value' => 'New boats for sale',
+        ]);
+
+        $stored = WPSEO_Options::get('social-title-ptarchive-new-boat');
+        $this->unregisterArchive();
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('New boats for sale', $stored);
+    }
+
+    public function test_writes_nothing_to_an_archive_on_a_dry_run(): void
+    {
+        $this->registerArchive();
+        WPSEO_Options::set('metadesc-ptarchive-new-boat', 'About us.');
+
+        $result = $this->sendOne(['url' => home_url('/new-boat-sales/')], true);
+
+        $this->unregisterArchive();
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('About us.', WPSEO_Options::get('metadesc-ptarchive-new-boat'));
+    }
+
+    private function registerArchive(): void
+    {
+        register_post_type('new-boat', ['public' => true, 'has_archive' => 'new-boat-sales', 'rewrite' => ['slug' => 'new-boats']]);
+
+        flush_rewrite_rules();
+        WPSEO_Option_Titles::get_instance()->invalidate_enrich_defaults_cache();
+    }
+
+    private function unregisterArchive(): void
+    {
+        _unregister_post_type('new-boat');
+    }
+
     public function test_resolves_a_custom_post_type(): void
     {
         register_post_type('service', ['public' => true, 'rewrite' => ['slug' => 'services']]);
