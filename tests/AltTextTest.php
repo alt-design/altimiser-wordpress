@@ -356,6 +356,19 @@ class AltTextTest extends ReceiverTestCase
         $this->assertSame('not_clearable', $result['reason']);
     }
 
+    public function test_takes_the_normal_path_for_a_revert_with_no_or_blank_value(): void
+    {
+        $this->sendAlt();
+
+        foreach ([null, '   '] as $suggested) {
+            $result = $this->sendAlt(['suggested_value' => $suggested, 'revert' => true, 'current_value' => 'Boats moored in the harbour at dusk']);
+
+            $this->assertSame('no_suggestion', $result['reason']);
+        }
+
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
     public function test_clears_nothing_on_a_dry_run_revert(): void
     {
         $this->sendAlt();

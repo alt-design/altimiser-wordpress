@@ -71,6 +71,18 @@ class LinkTest extends ReceiverTestCase
         $this->assertSame($this->original, get_post($this->pageId)->post_content);
     }
 
+    public function test_says_a_revert_to_empty_cannot_remove_a_link(): void
+    {
+        $this->sendLink();
+
+        $result = $this->sendLink(['suggested_value' => '', 'revert' => true]);
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('not_clearable', $result['reason']);
+        $this->assertStringContainsString('anchor text', $result['message']);
+        $this->assertStringContainsString('<a href=', get_post($this->pageId)->post_content);
+    }
+
     public function test_counts_a_revert_with_no_link_left_to_take_off_as_done(): void
     {
         $result = $this->sendLink(['suggested_value' => 'The restrictive covenant clause']);

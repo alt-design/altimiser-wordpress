@@ -56,4 +56,9 @@ class ChangeRequest
             $change['revert'] ?? false,
         );
     }
+
+    public function isRevertToEmpty(): bool
+    {
+        return $this->revert && $this->suggestedValue === '';
+    }
 }

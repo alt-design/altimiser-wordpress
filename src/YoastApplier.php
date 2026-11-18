@@ -35,7 +35,7 @@ class YoastApplier implements Applier
 
     public function apply(ChangeRequest $change, bool $dryRun): array
     {
-        if (trim($change->suggestedValue ?? '') === '' && ! $change->revert) {
+        if (trim($change->suggestedValue ?? '') === '' && ! $change->isRevertToEmpty()) {
             return ChangeResult::skipped(
                 $change->id,
                 'no_suggestion',
@@ -46,7 +46,7 @@ class YoastApplier implements Applier
         $field = $this->field($change);
 
         if ($field === null) {
-            return $change->revert && trim($change->suggestedValue ?? '') === ''
+            return $change->isRevertToEmpty()
                 ? ChangeResult::skipped($change->id, 'not_clearable', 'Yoast has no field of its own for this tag, so there is nothing here to clear.')
                 : ChangeResult::skipped($change->id, 'no_field', $this->noFieldMessage($change));
         }
@@ -57,7 +57,7 @@ class YoastApplier implements Applier
             return ChangeResult::skipped($change->id, 'not_found', "Nothing editable answers to {$change->url}.");
         }
 
-        return trim($change->suggestedValue ?? '') === ''
+        return $change->isRevertToEmpty()
             ? $this->clearRecord($change, $record, $field, $dryRun)
             : $this->applyToRecord($change, $record, $field, $dryRun);
     }
