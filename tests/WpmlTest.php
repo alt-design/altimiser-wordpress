@@ -368,4 +368,70 @@ class WpmlTest extends ReceiverTestCase
         $this->assertSame($this->translationId, $found->ID);
         $this->assertSame(['zh-hans'], $this->switchEvents);
     }
+
+    public function test_inserts_a_draft_beside_a_translated_page_while_wpml_is_in_that_pages_language(): void
+    {
+        $this->activateWpml();
+        $insertedIn = [];
+        add_filter('wp_insert_post_data', function (array $data) use (&$insertedIn): array {
+            $insertedIn[] = $this->language;
+
+            return $data;
+        });
+        $body = (string) json_encode([
+            'reference' => 'idea-7',
+            'title' => 'Yacht management costs',
+            'body' => 'What management costs.',
+            'collection' => null,
+            'expands' => home_url('/zh-hans/'.rawurlencode('游艇管理').'/'),
+        ]);
+        $timestamp = time();
+        $request = new WP_REST_Request('POST', '/altimiser/v1/drafts');
+        $request->set_body($body);
+        $request->set_header('Content-Type', 'application/json');
+        $request->set_header('X-Altimiser-Timestamp', (string) $timestamp);
+        $request->set_header('X-Altimiser-Signature', $this->protocolSignature($body, $timestamp, self::$secret));
+
+        $response = $this->dispatch($request);
+
+        $this->assertSame('created', $response->get_data()['status']);
+        $this->assertSame(['zh-hans'], array_unique($insertedIn));
+        $this->assertSame('en', $this->language);
+        $this->assertSame([], $this->stack);
+    }
+
+    public function test_leaves_the_wpml_stack_empty_when_an_applier_throws_in_another_language(): void
+    {
+        $this->activateWpml();
+        $languages = new Languages();
+        $resolver = new ContentResolver($languages);
+        $thrower = new class($resolver) implements Applier
+        {
+            public function __construct(private ContentResolver $resolver) {}
+
+            public function checks(): array
+            {
+                return ['meta_description.missing'];
+            }
+
+            public function supports(string $check): bool
+            {
+                return true;
+            }
+
+            public function apply(ChangeRequest $change, bool $dryRun): array
+            {
+                $this->resolver->find($change->url);
+
+                throw new RuntimeException('The write failed.');
+            }
+        };
+        $change = ChangeRequest::fromPayload($this->change(['url' => home_url('/zh-hans/'.rawurlencode('游艇管理').'/')]));
+
+        $results = (new ChangeDispatcher([$thrower], new PageCache(), $languages))->dispatch([$change], false);
+
+        $this->assertSame('failed', $results[0]['status']);
+        $this->assertSame('en', $this->language);
+        $this->assertSame([], $this->stack);
+    }
 }
