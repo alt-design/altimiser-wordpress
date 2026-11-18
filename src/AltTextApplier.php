@@ -16,6 +16,11 @@ class AltTextApplier implements Applier
 {
     private string $metaKey = '_wp_attachment_image_alt';
 
+    /**
+     * @var array<int, string>
+     */
+    private array $writtenThisRequest = [];
+
     public function __construct(private ContentResolver $content, private ContentWriter $writer) {}
 
     public function checks(): array
@@ -52,13 +57,7 @@ class AltTextApplier implements Applier
         $writesLibrary = $stored === $current && $stored !== $suggested;
 
         if (! $writesLibrary && ! $copy['changed']) {
-            return $stored === $suggested || $copy['already']
-                ? ChangeResult::alreadyApplied($change->id, $this->libraryLocation($attachmentId), 'This image already has this alt text.')
-                : ChangeResult::skipped(
-                    $change->id,
-                    'value_changed',
-                    "Neither the media library nor this page's copy of the image holds the alt text the scan saw, so somebody has changed it since.",
-                );
+            return $this->unchangeable($change, $attachmentId, $stored, $suggested, $copy);
         }
 
         $location = $this->location($attachmentId, $writesLibrary, $copy['changed'] ? $post : null);
@@ -71,11 +70,59 @@ class AltTextApplier implements Applier
             return ChangeResult::failed($change->id, 'write_failed', 'WordPress did not save the alt text in the media library.');
         }
 
+        if ($writesLibrary) {
+            $this->writtenThisRequest[$attachmentId] = $suggested;
+        }
+
         if ($copy['changed'] && ! $this->writer->updatePost($post->ID, ['post_content' => $copy['html']])) {
             return ChangeResult::failed($change->id, 'write_failed', "WordPress did not save this page's copy of the image's alt text.");
         }
 
         return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
+    }
+
+    /**
+     * Says why nothing could be written. One image on several pages is raised once
+     * per page, so the library may hold the wording an earlier change in this batch
+     * wrote, and a page whose template leaves out the library's alt text has no copy
+     * of its own to write to.
+     *
+     * @param  array{html: string, changed: bool, already: bool, found: bool}  $copy
+     * @return array<string, mixed>
+     */
+    private function unchangeable(ChangeRequest $change, int $attachmentId, string $stored, string $suggested, array $copy): array
+    {
+        $writtenHere = $stored !== '' && ($this->writtenThisRequest[$attachmentId] ?? null) === $stored;
+
+        if ($stored === $suggested || $copy['already']) {
+            return ChangeResult::alreadyApplied(
+                $change->id,
+                $this->libraryLocation($attachmentId),
+                $writtenHere ? 'Another change in this batch has already written this alt text for the image.' : 'This image already has this alt text.',
+            );
+        }
+
+        if ($writtenHere) {
+            return ChangeResult::skipped(
+                $change->id,
+                'applied_by_other_change',
+                'Another change in this batch has already written different alt text for this image in the media library, which every page that prints it now shows.',
+            );
+        }
+
+        if ($stored !== '' && trim($change->currentValue ?? '') === '' && ! $copy['found']) {
+            return ChangeResult::skipped(
+                $change->id,
+                'template_omits_alt',
+                'The media library already holds alt text for this image, but this page does not print it, so its template leaves the alt text out. This needs a template fix and not a change to the alt text.',
+            );
+        }
+
+        return ChangeResult::skipped(
+            $change->id,
+            'value_changed',
+            "Neither the media library nor this page's copy of the image holds the alt text the scan saw, so somebody has changed it since.",
+        );
     }
 
     /**

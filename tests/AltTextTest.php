@@ -224,6 +224,67 @@ class AltTextTest extends ReceiverTestCase
         $this->assertSame('Boats moored in the harbour at dusk', parse_blocks(get_post($this->pageId)->post_content)[0]['attrs']['alt']);
     }
 
+    public function test_says_a_later_change_in_the_batch_was_already_applied_by_the_first(): void
+    {
+        $other = $this->secondPage();
+
+        $results = $this->send([
+            $this->altChange(['id' => 'first']),
+            $this->altChange(['id' => 'second', 'url' => get_permalink($other)]),
+        ]);
+
+        $this->assertSame('applied', $results[0]['status']);
+        $this->assertSame('already_applied', $results[1]['status']);
+        $this->assertStringContainsString('in this batch', $results[1]['message']);
+    }
+
+    public function test_says_a_later_change_with_other_wording_was_overtaken_by_the_first_in_the_batch(): void
+    {
+        $other = $this->secondPage();
+
+        $results = $this->send([
+            $this->altChange(['id' => 'first']),
+            $this->altChange(['id' => 'second', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
+        ]);
+
+        $this->assertSame('skipped', $results[1]['status']);
+        $this->assertSame('applied_by_other_change', $results[1]['reason']);
+        $this->assertStringNotContainsString('somebody has changed', $results[1]['message']);
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_still_calls_a_value_from_an_earlier_request_somebody_elses_change(): void
+    {
+        $other = $this->secondPage();
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+
+        $result = $this->sendAlt(['url' => get_permalink($other), 'current_value' => 'Old wording']);
+
+        $this->assertSame('value_changed', $result['reason']);
+    }
+
+    public function test_says_the_template_leaves_out_alt_text_the_media_library_holds(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        $this->setContent('<p>No image tag for it here.</p>');
+
+        $result = $this->sendAlt();
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('template_omits_alt', $result['reason']);
+        $this->assertStringContainsString('template', $result['message']);
+        $this->assertStringNotContainsString('somebody has changed', $result['message']);
+    }
+
+    private function secondPage(): int
+    {
+        return self::factory()->post->create([
+            'post_type' => 'page',
+            'post_name' => 'berths',
+            'post_content' => '<p>Berths.</p>',
+        ]);
+    }
+
     public function test_skips_a_change_with_no_alt_text_to_write(): void
     {
         $this->assertSame('no_suggestion', $this->sendAlt(['suggested_value' => null])['reason']);

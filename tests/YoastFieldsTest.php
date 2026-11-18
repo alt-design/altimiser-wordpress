@@ -380,7 +380,11 @@ class YoastFieldsTest extends ReceiverTestCase
         ];
 
         $this->assertSame('no_suggestion', $this->sendOne([...$change, 'suggested_value' => null])['reason']);
-        $this->assertSame('no_field', $this->sendOne([...$change, 'suggested_value' => 'https://example.org/a.png'])['reason']);
+        $result = $this->sendOne([...$change, 'suggested_value' => 'https://example.org/a.png']);
+
+        $this->assertSame('no_field', $result['reason']);
+        $this->assertStringContainsString('og:image meta tag', $result['message']);
+        $this->assertStringNotContainsString('open_graph.missing', $result['message']);
     }
 
     public function test_resolves_the_front_page(): void
