@@ -276,6 +276,48 @@ class AltTextTest extends ReceiverTestCase
         $this->assertStringNotContainsString('somebody has changed', $result['message']);
     }
 
+    public function test_previews_a_later_change_in_a_dry_run_as_a_real_run_would_answer_it(): void
+    {
+        $other = $this->secondPage();
+        $changes = [
+            $this->altChange(['id' => 'first']),
+            $this->altChange(['id' => 'second', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
+        ];
+
+        $results = $this->send($changes, true);
+
+        $this->assertSame('applied', $results[0]['status']);
+        $this->assertSame('applied_by_other_change', $results[1]['reason']);
+        $this->assertSame('', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_does_not_blame_the_template_on_a_page_built_with_elementor(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        update_post_meta($this->pageId, '_elementor_edit_mode', 'builder');
+
+        $this->assertSame('value_changed', $this->sendAlt()['reason']);
+    }
+
+    public function test_does_not_blame_the_template_for_an_address_that_resolves_to_no_post(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+
+        $result = $this->sendAlt(['url' => home_url('/no-such-page/')]);
+
+        $this->assertSame('value_changed', $result['reason']);
+    }
+
+    public function test_does_not_blame_the_template_when_the_page_prints_another_size_of_the_image(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        $this->setContent("<p><img src=\"{$this->uploads}/2026/11/harbour-768x512.jpg\" alt=\"The harbour in winter\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target("{$this->uploads}/2026/11/harbour-300x200.jpg")]);
+
+        $this->assertSame('value_changed', $result['reason']);
+    }
+
     private function secondPage(): int
     {
         return self::factory()->post->create([

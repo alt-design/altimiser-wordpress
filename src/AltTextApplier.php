@@ -21,6 +21,14 @@ class AltTextApplier implements Applier
      */
     private array $writtenThisRequest = [];
 
+    /**
+     * What a dry run would have written, kept apart so that a later dry run previews
+     * what a real one would do without being taken for a write.
+     *
+     * @var array<int, string>
+     */
+    private array $intendedThisRequest = [];
+
     public function __construct(private ContentResolver $content, private ContentWriter $writer) {}
 
     public function checks(): array
@@ -49,7 +57,9 @@ class AltTextApplier implements Applier
         }
 
         $current = trim($change->currentValue ?? '');
-        $stored = trim((string) get_post_meta($attachmentId, $this->metaKey, true));
+        $stored = $dryRun && isset($this->intendedThisRequest[$attachmentId])
+            ? $this->intendedThisRequest[$attachmentId]
+            : trim((string) get_post_meta($attachmentId, $this->metaKey, true));
         $post = $this->editablePost($change->url);
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
@@ -57,12 +67,16 @@ class AltTextApplier implements Applier
         $writesLibrary = $stored === $current && $stored !== $suggested;
 
         if (! $writesLibrary && ! $copy['changed']) {
-            return $this->unchangeable($change, $attachmentId, $stored, $suggested, $copy);
+            return $this->unchangeable($change, $attachmentId, $stored, $suggested, $copy, $dryRun, $post, $source);
         }
 
         $location = $this->location($attachmentId, $writesLibrary, $copy['changed'] ? $post : null);
 
         if ($dryRun) {
+            if ($writesLibrary) {
+                $this->intendedThisRequest[$attachmentId] = $suggested;
+            }
+
             return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
         }
 
@@ -90,9 +104,10 @@ class AltTextApplier implements Applier
      * @param  array{html: string, changed: bool, already: bool, found: bool}  $copy
      * @return array<string, mixed>
      */
-    private function unchangeable(ChangeRequest $change, int $attachmentId, string $stored, string $suggested, array $copy): array
+    private function unchangeable(ChangeRequest $change, int $attachmentId, string $stored, string $suggested, array $copy, bool $dryRun, ?WP_Post $post, string $source): array
     {
-        $writtenHere = $stored !== '' && ($this->writtenThisRequest[$attachmentId] ?? null) === $stored;
+        $earlier = $dryRun ? $this->intendedThisRequest : $this->writtenThisRequest;
+        $writtenHere = $stored !== '' && ($earlier[$attachmentId] ?? null) === $stored;
 
         if ($stored === $suggested || $copy['already']) {
             return ChangeResult::alreadyApplied(
@@ -110,7 +125,7 @@ class AltTextApplier implements Applier
             );
         }
 
-        if ($stored !== '' && trim($change->currentValue ?? '') === '' && ! $copy['found']) {
+        if ($stored !== '' && trim($change->currentValue ?? '') === '' && $post !== null && ! $this->mentionsImage($post, $attachmentId, $source)) {
             return ChangeResult::skipped(
                 $change->id,
                 'template_omits_alt',
@@ -123,6 +138,29 @@ class AltTextApplier implements Applier
             'value_changed',
             "Neither the media library nor this page's copy of the image holds the alt text the scan saw, so somebody has changed it since.",
         );
+    }
+
+    /**
+     * Whether the page's content has a tag for the image at all, in any size, so that
+     * a page printing a resized copy is not blamed on its template.
+     */
+    private function mentionsImage(WP_Post $post, int $attachmentId, string $source): bool
+    {
+        $tags = new WP_HTML_Tag_Processor($post->post_content);
+        $unsized = $this->withoutSize($this->path($source));
+
+        while ($tags->next_tag('img')) {
+            if ($tags->has_class("wp-image-{$attachmentId}") || $this->withoutSize($this->path((string) $tags->get_attribute('src'))) === $unsized) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function withoutSize(string $path): string
+    {
+        return (string) preg_replace('/-(?:\d+x\d+|scaled)(?=\.\w+$)/', '', $path);
     }
 
     /**
