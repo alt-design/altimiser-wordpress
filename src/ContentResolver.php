@@ -8,6 +8,11 @@ use WP_Term;
 
 class ContentResolver
 {
+    /**
+     * @var array<string, string|false>
+     */
+    private array $languageOf = [];
+
     public function __construct(private Languages $languages = new Languages()) {}
 
     /**
@@ -20,7 +25,7 @@ class ContentResolver
     {
         $lookup = $this->languages->withoutLanguage($url);
 
-        return $this->inEachLanguage(fn (): WP_Post|WP_Term|null => $this->findInCurrentLanguage($url, $lookup));
+        return $this->inEachLanguage("find|{$url}", fn (): WP_Post|WP_Term|null => $this->findInCurrentLanguage($url, $lookup));
     }
 
     private function findInCurrentLanguage(string $url, string $lookup): WP_Post|WP_Term|null
@@ -40,37 +45,88 @@ class ContentResolver
 
     public function findArchive(string $url): ?WP_Post_Type
     {
-        return $this->inEachLanguage(fn (): ?WP_Post_Type => $this->findArchiveInCurrentLanguage($url));
+        return $this->inEachLanguage("archive|{$url}", fn (): ?WP_Post_Type => $this->findArchiveInCurrentLanguage($url));
     }
 
     /**
+     * Leaves WPML switched to the language the record was found in, so that what is
+     * read from it and compared afterwards happens in that language, and the caller
+     * restores the original language through Languages::restore() when its change is
+     * done. A language that finds nothing is switched back out of before the next.
+     *
      * @template T of WP_Post|WP_Term|WP_Post_Type
      *
      * @param  callable(): ?T  $resolve
      * @return ?T
      */
-    private function inEachLanguage(callable $resolve): WP_Post|WP_Term|WP_Post_Type|null
+    private function inEachLanguage(string $key, callable $resolve): WP_Post|WP_Term|WP_Post_Type|null
     {
-        $found = $resolve();
-
-        if ($found !== null || ! $this->languages->multilingual()) {
-            return $found;
+        if (! $this->languages->multilingual()) {
+            return $resolve();
         }
 
-        $original = $this->languages->current();
+        $known = $this->languageOf[$key] ?? null;
 
-        try {
-            foreach (array_diff($this->languages->codes(), [$original]) as $code) {
+        if ($known === false) {
+            return null;
+        }
+
+        $current = $this->languages->current();
+
+        if ($known === null) {
+            $found = $resolve();
+
+            if ($found !== null) {
+                $this->remember($key, $current);
+
+                return $found;
+            }
+        }
+
+        $codes = $known ?? array_diff($this->languages->codes(), [$current]);
+        $found = $this->inLanguages((array) $codes, $current, $resolve);
+
+        $this->remember($key, $found === null ? false : $this->languages->current());
+
+        return $found;
+    }
+
+    private function remember(string $key, string|false|null $language): void
+    {
+        if ($language !== null) {
+            $this->languageOf[$key] = $language;
+        }
+    }
+
+    /**
+     * @template T of WP_Post|WP_Term|WP_Post_Type
+     *
+     * @param  array<int, string>  $codes
+     * @param  callable(): ?T  $resolve
+     * @return ?T
+     */
+    private function inLanguages(array $codes, ?string $current, callable $resolve): WP_Post|WP_Term|WP_Post_Type|null
+    {
+        foreach ($codes as $code) {
+            $switched = $code !== $current;
+            $kept = false;
+
+            if ($switched) {
                 $this->languages->switchTo($code);
+            }
 
+            try {
                 $found = $resolve();
-
-                if ($found !== null) {
-                    return $found;
+                $kept = $found !== null;
+            } finally {
+                if ($switched && ! $kept) {
+                    $this->languages->switchBack();
                 }
             }
-        } finally {
-            $this->languages->switchTo($original);
+
+            if ($found !== null) {
+                return $found;
+            }
         }
 
         return null;

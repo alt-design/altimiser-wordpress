@@ -9,6 +9,13 @@ namespace AltDesign\Altimiser;
  */
 class Languages
 {
+    private int $switches = 0;
+
+    /**
+     * @var ?array<int, string>
+     */
+    private ?array $codes = null;
+
     public function multilingual(): bool
     {
         return has_filter('wpml_active_languages') !== false
@@ -28,9 +35,13 @@ class Languages
      */
     public function codes(): array
     {
+        if ($this->codes !== null) {
+            return $this->codes;
+        }
+
         $languages = apply_filters('wpml_active_languages', null, ['skip_missing' => 0]);
 
-        return is_array($languages) ? array_map('strval', array_keys($languages)) : [];
+        return $this->codes = is_array($languages) ? array_map('strval', array_keys($languages)) : [];
     }
 
     /**
@@ -50,10 +61,32 @@ class Languages
         return is_string($converted) && $converted !== '' ? $converted : $url;
     }
 
-    public function switchTo(?string $code): void
+    /**
+     * WPML keeps the languages it has been switched to on a stack, which only a switch
+     * to null takes one off, so each switch made here is counted to be taken off again.
+     */
+    public function switchTo(string $code): void
     {
-        if ($code !== null) {
-            do_action('wpml_switch_language', $code);
+        do_action('wpml_switch_language', $code);
+
+        $this->switches++;
+    }
+
+    public function switchBack(): void
+    {
+        if ($this->switches === 0) {
+            return;
+        }
+
+        do_action('wpml_switch_language', null);
+
+        $this->switches--;
+    }
+
+    public function restore(): void
+    {
+        while ($this->switches > 0) {
+            $this->switchBack();
         }
     }
 }
