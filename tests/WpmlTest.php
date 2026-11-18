@@ -56,7 +56,7 @@ class WpmlTest extends ReceiverTestCase
         create_initial_taxonomies();
         flush_rewrite_rules();
 
-        $this->translationId = $this->page('yacht management', 'zh-hans');
+        $this->translationId = $this->page('garden design', 'zh-hans');
         wp_update_post(['ID' => $this->translationId, 'post_name' => rawurlencode('游艇管理')]);
     }
 
@@ -241,12 +241,12 @@ class WpmlTest extends ReceiverTestCase
     public function test_resolves_the_same_slug_in_two_languages_to_the_right_record(): void
     {
         $this->activateWpml();
-        $english = $this->page('charter', 'en', ['post_type' => 'post']);
-        $chinese = $this->page('charter-zh', 'zh-hans', ['post_type' => 'post']);
-        $this->sameSlug($chinese, 'charter');
+        $english = $this->page('opening-hours', 'en', ['post_type' => 'post']);
+        $chinese = $this->page('opening-hours-zh', 'zh-hans', ['post_type' => 'post']);
+        $this->sameSlug($chinese, 'opening-hours');
 
-        $inEnglish = $this->missingDescription(home_url('/charter/'), true);
-        $inChinese = $this->missingDescription(home_url('/zh-hans/charter/'), true);
+        $inEnglish = $this->missingDescription(home_url('/opening-hours/'), true);
+        $inChinese = $this->missingDescription(home_url('/zh-hans/opening-hours/'), true);
 
         $this->assertSame($english, $inEnglish['location']['id']);
         $this->assertSame($chinese, $inChinese['location']['id']);
@@ -270,9 +270,9 @@ class WpmlTest extends ReceiverTestCase
     public function test_finds_a_default_language_address_without_switching(): void
     {
         $this->activateWpml();
-        $english = $this->page('charter', 'en');
+        $english = $this->page('opening-hours', 'en');
 
-        $result = $this->missingDescription(home_url('/charter/'), true);
+        $result = $this->missingDescription(home_url('/opening-hours/'), true);
 
         $this->assertSame($english, $result['location']['id']);
         $this->assertSame([], $this->switchEvents);
@@ -380,7 +380,7 @@ class WpmlTest extends ReceiverTestCase
         });
         $body = (string) json_encode([
             'reference' => 'idea-7',
-            'title' => 'Yacht management costs',
+            'title' => 'Garden design costs',
             'body' => 'What management costs.',
             'collection' => null,
             'expands' => home_url('/zh-hans/'.rawurlencode('游艇管理').'/'),
