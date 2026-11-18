@@ -37,7 +37,7 @@ class AltTextApplier implements Applier
     {
         $suggested = trim($change->suggestedValue ?? '');
 
-        if ($suggested === '' && ! $change->revert) {
+        if ($suggested === '' && ! $change->isRevertToEmpty()) {
             return ChangeResult::skipped($change->id, 'no_suggestion', 'There is no alt text to write.');
         }
 

@@ -363,6 +363,19 @@ class YoastFieldsTest extends ReceiverTestCase
         $this->assertSame('How our studio works, and who we build for.', $this->storedDescription());
     }
 
+    public function test_takes_the_normal_path_for_a_revert_with_no_or_blank_value(): void
+    {
+        $this->storeDescription('How our studio works, and who we build for.');
+
+        foreach ([null, '   '] as $suggested) {
+            $result = $this->sendOne(['suggested_value' => $suggested, 'revert' => true, 'current_value' => 'How our studio works, and who we build for.']);
+
+            $this->assertSame('no_suggestion', $result['reason']);
+        }
+
+        $this->assertSame('How our studio works, and who we build for.', $this->storedDescription());
+    }
+
     public function test_clears_a_social_field_on_a_revert(): void
     {
         update_post_meta($this->pageId, '_yoast_wpseo_opengraph-title', 'Social title');
