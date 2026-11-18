@@ -285,6 +285,60 @@ class AltTextTest extends ReceiverTestCase
         ]);
     }
 
+    public function test_writes_to_no_image_when_the_scan_gave_no_address_for_it(): void
+    {
+        $this->setContent('<p><img alt="" class="a"><img src="" alt=""><img src="https://other-site.example.net/a.jpg" alt=""></p>');
+
+        $result = $this->sendAlt(['target' => $this->target('')]);
+
+        $this->assertSame('no_match', $result['reason']);
+        $this->assertStringNotContainsString('moored', get_post($this->pageId)->post_content);
+    }
+
+    public function test_writes_to_no_image_for_a_data_uri(): void
+    {
+        $uri = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+        $this->setContent("<p><img src=\"{$uri}\" alt=\"\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target($uri)]);
+
+        $this->assertSame('no_match', $result['reason']);
+        $this->assertStringNotContainsString('moored', get_post($this->pageId)->post_content);
+    }
+
+    public function test_tells_two_outside_images_with_the_same_path_on_different_hosts_apart(): void
+    {
+        $this->setContent('<p><img src="https://one.example.net/uploads/quay.jpg" alt=""><img src="https://two.example.net/uploads/quay.jpg" alt=""></p>');
+
+        $this->sendAlt(['target' => $this->target('https://two.example.net/uploads/quay.jpg')]);
+
+        $content = get_post($this->pageId)->post_content;
+
+        $this->assertStringContainsString('<img src="https://one.example.net/uploads/quay.jpg" alt="">', $content);
+        $this->assertStringContainsString('<img src="https://two.example.net/uploads/quay.jpg" alt="Boats moored in the harbour at dusk">', $content);
+    }
+
+    public function test_treats_a_leading_www_as_the_same_host_for_an_outside_image(): void
+    {
+        $this->setContent('<p><img src="https://www.other-site.example.net/uploads/quay.jpg" alt=""></p>');
+
+        $result = $this->sendAlt(['target' => $this->target('https://other-site.example.net/uploads/quay.jpg')]);
+
+        $this->assertSame('applied', $result['status']);
+    }
+
+    public function test_tells_two_outside_images_that_differ_only_in_their_query_apart(): void
+    {
+        $this->setContent('<p><img src="https://other-site.example.net/img.php?id=1" alt=""><img src="https://other-site.example.net/img.php?id=2" alt=""></p>');
+
+        $this->sendAlt(['target' => $this->target('https://other-site.example.net/img.php?id=2')]);
+
+        $content = get_post($this->pageId)->post_content;
+
+        $this->assertStringContainsString('img.php?id=1" alt="">', $content);
+        $this->assertStringContainsString('img.php?id=2" alt="Boats moored', $content);
+    }
+
     public function test_skips_a_change_with_no_alt_text_to_write(): void
     {
         $this->assertSame('no_suggestion', $this->sendAlt(['suggested_value' => null])['reason']);

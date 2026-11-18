@@ -55,6 +55,10 @@ class YoastApplier implements Applier
             return ChangeResult::skipped($change->id, 'not_found', "Nothing editable answers to {$change->url}.");
         }
 
+        if (! $this->yoast->canStore($record, $field)) {
+            return ChangeResult::skipped($change->id, 'no_field', "Yoast keeps no setting for {$this->yoast->storageKey($record, $field)}, so there is nowhere to write it.");
+        }
+
         return $this->applyToRecord($change, $record, $field, $dryRun);
     }
 
