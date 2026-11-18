@@ -667,23 +667,37 @@ class YoastFieldsTest extends ReceiverTestCase
         $this->assertSame('', WPSEO_Options::get('metadesc-ptarchive-new-boat', ''));
     }
 
-    public function test_does_not_take_an_address_on_another_host_for_the_page(): void
-    {
-        $this->storeDescription('About us.');
-
-        $result = $this->sendOne(['url' => 'https://elsewhere.example.net/about/']);
-
-        $this->assertSame('not_found', $result['reason']);
-    }
-
-    public function test_takes_a_www_host_for_the_same_page(): void
+    public function test_matches_a_page_by_its_path_and_query_not_its_host_spelling(): void
     {
         $this->storeDescription('About us.');
         $host = parse_url(home_url(), PHP_URL_HOST);
 
-        $result = $this->sendOne(['url' => "https://www.{$host}/about/"]);
+        foreach (["https://www.{$host}/about/", "http://{$host}/about/", "https://{$host}/about/"] as $url) {
+            $result = $this->sendOne(['url' => $url], true);
+
+            $this->assertSame($this->pageId, $result['location']['id'], $url);
+        }
+    }
+
+    public function test_applies_a_social_title_to_an_untouched_post_type_archive(): void
+    {
+        $this->registerArchive();
+        $default = WPSEO_Option_Titles::get_instance()->get_defaults()['social-title-ptarchive-new-boat'];
+        $scanned = wpseo_replace_vars($default, ['post_type' => 'new-boat']);
+
+        $result = $this->sendOne([
+            'check' => 'open_graph.missing',
+            'target' => ['selector' => 'meta[property="og:title"]', 'attribute' => 'content'],
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => $scanned,
+            'suggested_value' => 'New boats for sale',
+        ]);
+
+        $stored = WPSEO_Options::get('social-title-ptarchive-new-boat');
+        $this->unregisterArchive();
 
         $this->assertSame('applied', $result['status']);
+        $this->assertSame('New boats for sale', $stored);
     }
 
     public function test_writes_nothing_to_an_archive_on_a_dry_run(): void

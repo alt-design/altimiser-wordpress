@@ -72,9 +72,7 @@ class Yoast
     public function template(WP_Post|WP_Post_Type|WP_Term $record, string $field): string
     {
         if ($record instanceof WP_Post_Type) {
-            return $field === 'title'
-                ? (WPSEO_Option_Titles::get_instance()->get_defaults()[$this->archiveKey($record, $field)] ?? '')
-                : '';
+            return WPSEO_Option_Titles::get_instance()->get_defaults()[$this->archiveKey($record, $field)] ?? '';
         }
 
         $subject = $record instanceof WP_Post ? $record->post_type : "tax-{$record->taxonomy}";
