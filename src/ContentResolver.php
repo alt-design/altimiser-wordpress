@@ -92,10 +92,7 @@ class ContentResolver
 
     private function address(string $url): string
     {
-        $host = (string) (parse_url($url, PHP_URL_HOST) ?: parse_url(home_url(), PHP_URL_HOST));
-        $host = (string) preg_replace('/^www\./', '', strtolower($host));
-
-        return $host.'|'.$this->path($url).'?'.parse_url($url, PHP_URL_QUERY);
+        return $this->path($url).'?'.parse_url($url, PHP_URL_QUERY);
     }
 
     /**
