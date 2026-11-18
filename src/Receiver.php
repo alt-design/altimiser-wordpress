@@ -207,7 +207,8 @@ class Receiver
             $changes[] = $parsed;
         }
 
-        $dispatcher = new ChangeDispatcher($this->appliers(), new PageCache());
+        $languages = new Languages();
+        $dispatcher = new ChangeDispatcher($this->appliers($languages), new PageCache(), $languages);
 
         return new WP_REST_Response([
             'results' => [...$rejected, ...$dispatcher->dispatch($changes, $payload['dry_run'] ?? false)],
@@ -226,21 +227,24 @@ class Receiver
             return new WP_Error('altimiser_unreadable', $exception->getMessage(), ['status' => 422]);
         }
 
-        $posts = new DraftPosts(new ContentResolver(), new Collections(), new MarkdownBlocks(), $this->yoast);
+        $languages = new Languages();
+        $posts = new DraftPosts(new ContentResolver($languages), new Collections(), new MarkdownBlocks(), $this->yoast);
 
         try {
             return new WP_REST_Response($posts->store($draft));
         } catch (Throwable $exception) {
             return new WP_Error('altimiser_write_failed', $exception->getMessage(), ['status' => 500]);
+        } finally {
+            $languages->restore();
         }
     }
 
     /**
      * @return array<int, Applier>
      */
-    private function appliers(): array
+    private function appliers(?Languages $languages = null): array
     {
-        $content = new ContentResolver();
+        $content = new ContentResolver($languages ?? new Languages());
         $writer = new ContentWriter();
         $variables = new PostVariables($this->yoast);
 

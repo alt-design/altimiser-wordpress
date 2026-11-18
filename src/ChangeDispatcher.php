@@ -9,7 +9,7 @@ class ChangeDispatcher
     /**
      * @param  array<int, Applier>  $appliers
      */
-    public function __construct(private array $appliers, private PageCache $pageCache) {}
+    public function __construct(private array $appliers, private PageCache $pageCache, private Languages $languages = new Languages()) {}
 
     /**
      * Does a bounded amount of work and hands the rest back as deferred, because no
@@ -41,7 +41,7 @@ class ChangeDispatcher
                 continue;
             }
 
-            $result = $this->applyOne($change, $dryRun);
+            $result = $this->applyOneInItsOwnLanguage($change, $dryRun);
             $results[] = $result;
 
             if (in_array($result['status'], ['applied', 'already_applied'], true)) {
@@ -95,6 +95,21 @@ class ChangeDispatcher
     private function outOfRoom(int $attempted, int $batchSize, float $startedAt, float $budget): bool
     {
         return $attempted >= $batchSize || microtime(true) - $startedAt > $budget;
+    }
+
+    /**
+     * A change that was found in another language is applied while WPML is switched to
+     * it, and the next change starts again in the language the request began in.
+     *
+     * @return array<string, mixed>
+     */
+    private function applyOneInItsOwnLanguage(ChangeRequest $change, bool $dryRun): array
+    {
+        try {
+            return $this->applyOne($change, $dryRun);
+        } finally {
+            $this->languages->restore();
+        }
     }
 
     /**

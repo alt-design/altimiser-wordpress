@@ -8,22 +8,131 @@ use WP_Term;
 
 class ContentResolver
 {
+    /**
+     * @var array<string, string|false>
+     */
+    private array $languageOf = [];
+
+    public function __construct(private Languages $languages = new Languages()) {}
+
+    /**
+     * On a multilingual site an address in another language only answers while WPML is
+     * set to that language, so each of the site's languages is tried in turn once the
+     * current one has found nothing. The address check below stops a record being
+     * taken for an address it is not at, whichever language is being tried.
+     */
     public function find(string $url): WP_Post|WP_Term|null
     {
-        $postId = url_to_postid($url);
+        $lookup = $this->languages->withoutLanguage($url);
+
+        return $this->inEachLanguage("find|{$url}", fn (): WP_Post|WP_Term|null => $this->findInCurrentLanguage($url, $lookup));
+    }
+
+    private function findInCurrentLanguage(string $url, string $lookup): WP_Post|WP_Term|null
+    {
+        $postId = url_to_postid($lookup);
 
         if ($postId === 0) {
-            $postId = $this->postsPageAt($url);
+            $postId = $this->landingPageAt($url);
         }
 
         if ($postId === 0) {
-            return $this->findTerm($url);
+            return $this->findTerm($url, $lookup);
         }
 
         return $this->isPublishedAt($url, $postId) ? get_post($postId) : null;
     }
 
     public function findArchive(string $url): ?WP_Post_Type
+    {
+        return $this->inEachLanguage("archive|{$url}", fn (): ?WP_Post_Type => $this->findArchiveInCurrentLanguage($url));
+    }
+
+    /**
+     * Leaves WPML switched to the language the record was found in, so that what is
+     * read from it and compared afterwards happens in that language, and the caller
+     * restores the original language through Languages::restore() when its change is
+     * done. A language that finds nothing is switched back out of before the next.
+     *
+     * @template T of WP_Post|WP_Term|WP_Post_Type
+     *
+     * @param  callable(): ?T  $resolve
+     * @return ?T
+     */
+    private function inEachLanguage(string $key, callable $resolve): WP_Post|WP_Term|WP_Post_Type|null
+    {
+        if (! $this->languages->multilingual()) {
+            return $resolve();
+        }
+
+        $known = $this->languageOf[$key] ?? null;
+
+        if ($known === false) {
+            return null;
+        }
+
+        $current = $this->languages->current();
+
+        if ($known === null) {
+            $found = $resolve();
+
+            if ($found !== null) {
+                $this->remember($key, $current);
+
+                return $found;
+            }
+        }
+
+        $codes = $known ?? array_diff($this->languages->codes(), [$current]);
+        $found = $this->inLanguages((array) $codes, $current, $resolve);
+
+        $this->remember($key, $found === null ? false : $this->languages->current());
+
+        return $found;
+    }
+
+    private function remember(string $key, string|false|null $language): void
+    {
+        if ($language !== null) {
+            $this->languageOf[$key] = $language;
+        }
+    }
+
+    /**
+     * @template T of WP_Post|WP_Term|WP_Post_Type
+     *
+     * @param  array<int, string>  $codes
+     * @param  callable(): ?T  $resolve
+     * @return ?T
+     */
+    private function inLanguages(array $codes, ?string $current, callable $resolve): WP_Post|WP_Term|WP_Post_Type|null
+    {
+        foreach ($codes as $code) {
+            $switched = $code !== $current;
+            $kept = false;
+
+            if ($switched) {
+                $this->languages->switchTo($code);
+            }
+
+            try {
+                $found = $resolve();
+                $kept = $found !== null;
+            } finally {
+                if ($switched && ! $kept) {
+                    $this->languages->switchBack();
+                }
+            }
+
+            if ($found !== null) {
+                return $found;
+            }
+        }
+
+        return null;
+    }
+
+    private function findArchiveInCurrentLanguage(string $url): ?WP_Post_Type
     {
         foreach (get_post_types(['public' => true, 'has_archive' => true], 'objects') as $type) {
             $link = get_post_type_archive_link($type->name);
@@ -38,19 +147,25 @@ class ContentResolver
 
     /**
      * url_to_postid() has no answer for the page chosen to list the blog, because its
-     * address is the posts index and not the page's own rewrite rule.
+     * address is the posts index and not the page's own rewrite rule, and none for a
+     * static front page once the address carries a language.
      */
-    private function postsPageAt(string $url): int
+    private function landingPageAt(string $url): int
     {
-        $pageId = (int) get_option('page_for_posts');
-
-        if ($pageId === 0 || get_option('show_on_front') !== 'page') {
+        if (get_option('show_on_front') !== 'page') {
             return 0;
         }
 
-        $link = get_permalink($pageId);
+        foreach (['page_for_posts', 'page_on_front'] as $option) {
+            $pageId = (int) get_option($option);
+            $link = $pageId === 0 ? false : get_permalink($pageId);
 
-        return is_string($link) && $this->address($link) === $this->address($url) ? $pageId : 0;
+            if (is_string($link) && $this->address($link) === $this->address($url)) {
+                return $pageId;
+            }
+        }
+
+        return 0;
     }
 
     /**
@@ -73,10 +188,10 @@ class ContentResolver
         return $this->address(get_permalink($postId)) === $this->address($url);
     }
 
-    private function findTerm(string $url): ?WP_Term
+    private function findTerm(string $url, string $lookup): ?WP_Term
     {
         foreach (get_taxonomies(['public' => true]) as $taxonomy) {
-            $term = get_term_by('slug', wp_basename($this->path($url)), $taxonomy);
+            $term = get_term_by('slug', wp_basename($this->path($lookup)), $taxonomy);
 
             if (! $term instanceof WP_Term) {
                 continue;
