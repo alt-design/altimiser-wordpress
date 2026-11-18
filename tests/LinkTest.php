@@ -200,7 +200,7 @@ class LinkTest extends ReceiverTestCase
         );
         $this->assertSame(
             '<p>Café <a href="/insights/restrictive-covenant-clause">The restrictive covenant clause</a> résumé, 東京.</p>',
-            get_field('flexible_content', $this->pageId, false)['row-1']['field_altimiser_fc_body'],
+            get_field('flexible_content', $this->pageId, false)[1]['field_altimiser_fc_body'],
         );
     }
 
@@ -217,6 +217,36 @@ class LinkTest extends ReceiverTestCase
         ]);
 
         $this->assertSame('applied', $revert['status']);
+        $this->assertSame($before, $this->metaRows());
+    }
+
+    public function test_writes_to_the_stored_row_when_an_earlier_layout_is_not_loaded(): void
+    {
+        $this->setContent('<p>Nothing about covenants here.</p>');
+        $this->seedFlexibleContent();
+        $this->storeMeta([
+            'flexible_content' => ['hidden', 'text', 'text'],
+            'flexible_content_0_body' => '<p>Not loaded.</p>',
+            '_flexible_content_0_body' => 'field_altimiser_fc_body',
+            'flexible_content_1_body' => '<p>Row one.</p>',
+            'flexible_content_2_body' => '<p>The restrictive covenant clause in row two.</p>',
+            '_flexible_content_2_body' => 'field_altimiser_fc_body',
+            'flexible_content_2_show_table' => '0',
+            '_flexible_content_2_show_table' => 'field_altimiser_fc_show',
+        ]);
+        $before = $this->metaRows();
+
+        $this->assertSame('applied', $this->sendLink()['status']);
+        $after = $this->metaRows();
+
+        $this->assertSame(['flexible_content_2_body'], array_keys(array_diff_assoc($after, $before)));
+        $this->assertSame('<p>Row one.</p>', get_post_meta($this->pageId, 'flexible_content_1_body', true));
+
+        $this->sendLink([
+            'current_value' => 'https://example.org/insights/restrictive-covenant-clause',
+            'suggested_value' => 'The restrictive covenant clause',
+        ]);
+
         $this->assertSame($before, $this->metaRows());
     }
 
@@ -242,6 +272,12 @@ class LinkTest extends ReceiverTestCase
                 'name' => 'flexible_content',
                 'type' => 'flexible_content',
                 'layouts' => [
+                    'layout_altimiser_hidden' => [
+                        'key' => 'layout_altimiser_hidden',
+                        'name' => 'hidden',
+                        'label' => 'Hidden',
+                        'sub_fields' => [],
+                    ],
                     'layout_altimiser_text' => [
                         'key' => 'layout_altimiser_text',
                         'name' => 'text',
@@ -287,7 +323,9 @@ class LinkTest extends ReceiverTestCase
             update_post_meta($this->pageId, $key, $value);
         }
 
-        $this->emulateRowLoading();
+        if (! has_filter('acf/load_value/type=repeater')) {
+            $this->emulateRowLoading();
+        }
     }
 
     private function emulateRowLoading(): void
@@ -297,6 +335,10 @@ class LinkTest extends ReceiverTestCase
             $loaded = [];
 
             foreach ((array) $layouts as $index => $layout) {
+                if ($layout === 'hidden') {
+                    continue;
+                }
+
                 $subFields = $layout === null ? $field['sub_fields'] : $this->layoutSubFields($field, $layout);
                 $row = $layout === null ? [] : ['acf_fc_layout' => $layout];
 
@@ -308,7 +350,7 @@ class LinkTest extends ReceiverTestCase
                     }
                 }
 
-                $loaded["row-{$index}"] = $row;
+                $loaded[$index] = $row;
             }
 
             return $loaded;

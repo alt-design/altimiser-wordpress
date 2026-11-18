@@ -204,12 +204,14 @@ class LinkApplier implements Applier
         }
 
         foreach (array_keys($value) as $position => $index) {
+            $row = is_int($index) || ctype_digit((string) $index) ? (int) $index : $position;
+
             if (! is_array($value[$index])) {
                 continue;
             }
 
             $subFields = $type === 'repeater' ? ($field['sub_fields'] ?? []) : $this->layoutFields($field, $value[$index]);
-            $outcome = $this->visitRow($value[$index], $subFields, "{$metaKey}_{$position}_", $rewrite, $written);
+            $outcome = $this->visitRow($value[$index], $subFields, "{$metaKey}_{$row}_", $rewrite, $written);
 
             if ($outcome !== null) {
                 return $outcome;
