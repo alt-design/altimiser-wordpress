@@ -142,6 +142,7 @@ class Receiver
     {
         return array_keys(array_filter([
             'content.update' => $checks !== [],
+            'content.clear' => $checks !== [],
             'content.draft' => true,
             'content.link' => in_array('link.opportunity', $checks, true),
         ]));

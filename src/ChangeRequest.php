@@ -14,6 +14,7 @@ class ChangeRequest
         public readonly array $target,
         public readonly ?string $currentValue,
         public readonly ?string $suggestedValue,
+        public readonly bool $revert = false,
     ) {}
 
     /**
@@ -41,6 +42,10 @@ class ChangeRequest
             return null;
         }
 
+        if (! is_bool($change['revert'] ?? false)) {
+            return null;
+        }
+
         return new self(
             $change['id'],
             $change['check'],
@@ -48,6 +53,7 @@ class ChangeRequest
             $change['target'] ?? [],
             $change['current_value'] ?? null,
             $change['suggested_value'] ?? null,
+            $change['revert'] ?? false,
         );
     }
 }

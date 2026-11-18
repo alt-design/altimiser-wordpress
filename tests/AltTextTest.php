@@ -285,6 +285,95 @@ class AltTextTest extends ReceiverTestCase
         ]);
     }
 
+    public function test_clears_the_media_library_and_empties_the_page_on_a_revert(): void
+    {
+        $this->sendAlt();
+
+        $result = $this->sendAlt($this->clearing(['check' => 'image.alt_empty', 'current_value' => 'Boats moored in the harbour at dusk']));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertFalse(metadata_exists('post', $this->imageId, '_wp_attachment_image_alt'));
+        $this->assertStringContainsString('alt=""', get_post($this->pageId)->post_content);
+        $this->assertStringNotContainsString('moored', get_post($this->pageId)->post_content);
+    }
+
+    public function test_removes_the_alt_attribute_again_when_the_image_had_none(): void
+    {
+        $this->setContent("<p><img src=\"{$this->uploads}/2026/11/harbour.jpg\" class=\"wp-image-{$this->imageId}\"></p>");
+        $this->sendAlt();
+
+        $result = $this->sendAlt($this->clearing(['current_value' => 'Boats moored in the harbour at dusk']));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertStringNotContainsString('alt=', get_post($this->pageId)->post_content);
+        $this->assertFalse(metadata_exists('post', $this->imageId, '_wp_attachment_image_alt'));
+    }
+
+    public function test_refuses_to_clear_alt_text_that_has_moved_on(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        $this->setContent($this->imageBlock($this->imageId, "{$this->uploads}/2026/11/harbour.jpg", 'The harbour in winter'));
+
+        $result = $this->sendAlt($this->clearing(['current_value' => 'Boats moored in the harbour at dusk']));
+
+        $this->assertSame('value_changed', $result['reason']);
+        $this->assertSame('The harbour', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+        $this->assertStringContainsString('alt="The harbour in winter"', get_post($this->pageId)->post_content);
+    }
+
+    public function test_clears_only_the_page_where_the_media_library_has_other_wording(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        $this->setContent($this->imageBlock($this->imageId, "{$this->uploads}/2026/11/harbour.jpg", 'Boats moored in the harbour at dusk'));
+
+        $result = $this->sendAlt($this->clearing(['check' => 'image.alt_empty', 'current_value' => 'Boats moored in the harbour at dusk']));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('The harbour', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+        $this->assertStringContainsString('alt=""', get_post($this->pageId)->post_content);
+    }
+
+    public function test_clears_alt_text_written_into_an_image_outside_the_media_library(): void
+    {
+        $source = 'https://other-site.example.net/wp-content/uploads/2020/05/quay.jpg';
+        $this->setContent("<p><img src=\"{$source}\"></p>");
+        $this->sendAlt(['target' => $this->target($source)]);
+
+        $result = $this->sendAlt($this->clearing(['target' => $this->target($source), 'current_value' => 'Boats moored in the harbour at dusk']));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertStringNotContainsString('alt=', get_post($this->pageId)->post_content);
+    }
+
+    public function test_clears_nothing_on_a_dry_run_revert(): void
+    {
+        $this->sendAlt();
+
+        $result = $this->send([$this->altChange($this->clearing(['current_value' => 'Boats moored in the harbour at dusk']))], true)[0];
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_still_refuses_an_empty_suggestion_that_is_not_a_revert(): void
+    {
+        $this->sendAlt();
+
+        $result = $this->sendAlt(['current_value' => 'Boats moored in the harbour at dusk', 'suggested_value' => '']);
+
+        $this->assertSame('no_suggestion', $result['reason']);
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function clearing(array $overrides = []): array
+    {
+        return ['suggested_value' => '', 'revert' => true, ...$overrides];
+    }
+
     public function test_skips_a_change_with_no_alt_text_to_write(): void
     {
         $this->assertSame('no_suggestion', $this->sendAlt(['suggested_value' => null])['reason']);
