@@ -90,6 +90,21 @@ class IntegrationsTest extends ReceiverTestCase
         $this->assertArrayNotHasKey('wp_super_cache', $integrations);
     }
 
+    public function test_finds_the_pro_build_of_hummingbird_in_its_own_folder(): void
+    {
+        update_option('active_plugins', ['wp-hummingbird/wp-hummingbird.php']);
+        $directory = $this->pluginDirectory();
+        mkdir("{$directory}/wp-hummingbird");
+        file_put_contents("{$directory}/wp-hummingbird/wp-hummingbird.php", "<?php\n/*\nPlugin Name: Test speed\nVersion: 3.9.1\n*/\n");
+
+        $integrations = (new AltDesign\Altimiser\Integrations($directory))->active();
+
+        unlink("{$directory}/wp-hummingbird/wp-hummingbird.php");
+        rmdir("{$directory}/wp-hummingbird");
+
+        $this->assertSame(['installed' => true, 'version' => '3.9.1'], $integrations['hummingbird']);
+    }
+
     private function pluginDirectory(): string
     {
         $this->pluginFolder = sys_get_temp_dir().'/altimiser-plugins-'.uniqid();

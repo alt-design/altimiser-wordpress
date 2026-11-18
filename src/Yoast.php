@@ -27,7 +27,7 @@ class Yoast
     public function stored(WP_Post|WP_Post_Type|WP_Term $record, string $field): string
     {
         if ($record instanceof WP_Post_Type) {
-            return (string) WPSEO_Options::get($this->archiveKey($record, $field), '');
+            return $this->storedForArchive($record, $field);
         }
 
         $value = $record instanceof WP_Post
@@ -35,6 +35,34 @@ class Yoast
             : WPSEO_Taxonomy_Meta::get_term_meta($record, $record->taxonomy, $this->termField($field));
 
         return is_string($value) ? $value : '';
+    }
+
+    /**
+     * Yoast hands back its default for a setting nobody has saved, so a value equal to
+     * the default is a field with nothing of its own in it.
+     */
+    private function storedForArchive(WP_Post_Type $type, string $field): string
+    {
+        $key = $this->archiveKey($type, $field);
+        $value = (string) WPSEO_Options::get($key, '');
+        $default = WPSEO_Option_Titles::get_instance()->get_defaults()[$key] ?? null;
+
+        return $value === $default ? '' : $value;
+    }
+
+    /**
+     * Writing a setting Yoast has no key for would be held in memory for the request
+     * and never saved, and reading it straight back would look like a success.
+     */
+    public function canStore(WP_Post|WP_Post_Type|WP_Term $record, string $field): bool
+    {
+        if (! $record instanceof WP_Post_Type) {
+            return true;
+        }
+
+        $settings = WPSEO_Options::get_option('wpseo_titles');
+
+        return is_array($settings) && array_key_exists($this->archiveKey($record, $field), $settings);
     }
 
     /**
