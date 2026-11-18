@@ -35,7 +35,7 @@ class YoastApplier implements Applier
 
     public function apply(ChangeRequest $change, bool $dryRun): array
     {
-        if (trim($change->suggestedValue ?? '') === '') {
+        if (trim($change->suggestedValue ?? '') === '' && ! $change->isRevertToEmpty()) {
             return ChangeResult::skipped(
                 $change->id,
                 'no_suggestion',
@@ -46,7 +46,9 @@ class YoastApplier implements Applier
         $field = $this->field($change);
 
         if ($field === null) {
-            return ChangeResult::skipped($change->id, 'no_field', $this->noFieldMessage($change));
+            return $change->isRevertToEmpty()
+                ? ChangeResult::skipped($change->id, 'not_clearable', 'Yoast has no field of its own for this tag, so there is nothing here to clear.')
+                : ChangeResult::skipped($change->id, 'no_field', $this->noFieldMessage($change));
         }
 
         $record = $this->content->find($change->url) ?? $this->content->findArchive($change->url);
@@ -59,7 +61,41 @@ class YoastApplier implements Applier
             return ChangeResult::skipped($change->id, 'no_field', "Yoast keeps no setting for {$this->yoast->storageKey($record, $field)}, so there is nowhere to write it.");
         }
 
-        return $this->applyToRecord($change, $record, $field, $dryRun);
+        return $change->isRevertToEmpty()
+            ? $this->clearRecord($change, $record, $field, $dryRun)
+            : $this->applyToRecord($change, $record, $field, $dryRun);
+    }
+
+    /**
+     * Reverting a change that filled an empty field empties it again, once the field
+     * is confirmed to still hold what was written.
+     *
+     * @return array<string, mixed>
+     */
+    private function clearRecord(ChangeRequest $change, WP_Post|WP_Post_Type|WP_Term $record, string $field, bool $dryRun): array
+    {
+        $stored = $this->yoast->stored($record, $field);
+        $location = $this->describe($record, $field);
+
+        if ($stored === '') {
+            return ChangeResult::alreadyApplied($change->id, $location, 'This page has no value of its own to clear.');
+        }
+
+        $refusal = $this->refusal($change, $stored, $this->yoast->render($stored, $record));
+
+        if ($refusal !== null) {
+            return $refusal;
+        }
+
+        if ($dryRun) {
+            return ChangeResult::applied($change->id, $location, $stored, '');
+        }
+
+        $this->yoast->clear($record, $field);
+
+        return $this->yoast->stored($record, $field) === ''
+            ? ChangeResult::applied($change->id, $location, $stored, '')
+            : ChangeResult::failed($change->id, 'write_failed', "{$location['field']} still holds a value after clearing it.");
     }
 
     /**

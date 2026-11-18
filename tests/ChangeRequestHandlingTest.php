@@ -108,6 +108,7 @@ class ChangeRequestHandlingTest extends ReceiverTestCase
             'no url' => [['id' => 'bad', 'check' => 'title.too_long'], 'bad'],
             'a target that is not an object' => [['id' => 'bad', 'check' => 'title.too_long', 'url' => 'https://example.org/', 'target' => 'head'], 'bad'],
             'a value that is not text' => [['id' => 'bad', 'check' => 'title.too_long', 'url' => 'https://example.org/', 'current_value' => 12], 'bad'],
+            'a revert flag that is not a boolean' => [['id' => 'bad', 'check' => 'title.too_long', 'url' => 'https://example.org/', 'revert' => 'yes'], 'bad'],
         ];
     }
 

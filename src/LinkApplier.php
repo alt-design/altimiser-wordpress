@@ -34,6 +34,14 @@ class LinkApplier implements Applier
 
     public function apply(ChangeRequest $change, bool $dryRun): array
     {
+        if ($change->isRevertToEmpty()) {
+            return ChangeResult::skipped(
+                $change->id,
+                'not_clearable',
+                'A link is removed by sending the anchor text back as the suggested value, and an empty value has nothing to put back.',
+            );
+        }
+
         $anchor = trim((string) ($change->target['anchor'] ?? ''));
         $href = trim((string) ($change->target['href'] ?? ''));
 

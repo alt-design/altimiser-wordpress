@@ -31,6 +31,10 @@ class StructuredDataApplier implements Applier
 
     public function apply(ChangeRequest $change, bool $dryRun): array
     {
+        if ($change->isRevertToEmpty()) {
+            return ChangeResult::skipped($change->id, 'not_clearable', 'Structured data added by a change is not removed by a revert.');
+        }
+
         $block = trim($change->suggestedValue ?? '');
 
         if ($block === '') {

@@ -49,6 +49,10 @@ class RobotsApplier implements Applier
 
     public function apply(ChangeRequest $change, bool $dryRun): array
     {
+        if ($change->isRevertToEmpty()) {
+            return ChangeResult::skipped($change->id, 'not_clearable', 'A change to robots.txt is not removed by a revert.');
+        }
+
         $sitePath = trim((string) parse_url(home_url(), PHP_URL_PATH), '/');
 
         if ($sitePath !== '') {

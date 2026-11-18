@@ -51,7 +51,7 @@ class HealthTest extends ReceiverTestCase
             'sitemap.not_declared_in_robots',
             'structured_data.missing',
         ], $health['checks']);
-        $this->assertSame(['content.update', 'content.draft', 'content.link'], $health['capabilities']);
+        $this->assertSame(['content.update', 'content.clear', 'content.draft', 'content.link'], $health['capabilities']);
         $this->assertSame(['installed' => true, 'version' => WPSEO_VERSION], $health['integrations']['yoast']);
     }
 
@@ -82,7 +82,7 @@ class HealthTest extends ReceiverTestCase
             'sitemap.not_declared_in_robots',
             'structured_data.missing',
         ], $health['checks']);
-        $this->assertSame(['content.update', 'content.draft', 'content.link'], $health['capabilities']);
+        $this->assertSame(['content.update', 'content.clear', 'content.draft', 'content.link'], $health['capabilities']);
         $this->assertSame(['installed' => false], $health['integrations']['yoast']);
     }
 

@@ -315,6 +315,137 @@ class YoastFieldsTest extends ReceiverTestCase
         $this->assertFalse(metadata_exists('post', $this->pageId, '_yoast_wpseo_metadesc'));
     }
 
+    public function test_clears_a_page_field_on_a_revert_of_a_change_that_filled_it(): void
+    {
+        $this->sendOne(['check' => 'meta_description.missing', 'current_value' => null]);
+
+        $result = $this->sendOne($this->clearing(['current_value' => 'How our studio works, and who we build for.']));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('How our studio works, and who we build for.', $result['from']);
+        $this->assertFalse(metadata_exists('post', $this->pageId, '_yoast_wpseo_metadesc'));
+    }
+
+    public function test_refuses_to_clear_a_page_field_that_has_moved_on(): void
+    {
+        $this->storeDescription('An editor wrote this.');
+
+        $result = $this->sendOne($this->clearing(['current_value' => 'How our studio works, and who we build for.']));
+
+        $this->assertSame('value_changed', $result['reason']);
+        $this->assertSame('An editor wrote this.', $this->storedDescription());
+    }
+
+    public function test_counts_a_field_that_is_already_empty_as_cleared(): void
+    {
+        $result = $this->sendOne($this->clearing(['current_value' => 'How our studio works, and who we build for.']));
+
+        $this->assertSame('already_applied', $result['status']);
+    }
+
+    public function test_clears_nothing_on_a_dry_run_revert(): void
+    {
+        $this->storeDescription('How our studio works, and who we build for.');
+
+        $result = $this->sendOne($this->clearing(['current_value' => 'How our studio works, and who we build for.']), true);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('How our studio works, and who we build for.', $this->storedDescription());
+    }
+
+    public function test_still_refuses_an_empty_suggestion_that_is_not_a_revert(): void
+    {
+        $this->storeDescription('How our studio works, and who we build for.');
+
+        $result = $this->sendOne(['suggested_value' => '', 'current_value' => 'How our studio works, and who we build for.']);
+
+        $this->assertSame('no_suggestion', $result['reason']);
+        $this->assertSame('How our studio works, and who we build for.', $this->storedDescription());
+    }
+
+    public function test_takes_the_normal_path_for_a_revert_with_no_or_blank_value(): void
+    {
+        $this->storeDescription('How our studio works, and who we build for.');
+
+        foreach ([null, '   '] as $suggested) {
+            $result = $this->sendOne(['suggested_value' => $suggested, 'revert' => true, 'current_value' => 'How our studio works, and who we build for.']);
+
+            $this->assertSame('no_suggestion', $result['reason']);
+        }
+
+        $this->assertSame('How our studio works, and who we build for.', $this->storedDescription());
+    }
+
+    public function test_clears_a_social_field_on_a_revert(): void
+    {
+        update_post_meta($this->pageId, '_yoast_wpseo_opengraph-title', 'Social title');
+
+        $result = $this->sendOne($this->clearing([
+            'check' => 'open_graph.missing',
+            'target' => ['selector' => 'meta[property="og:title"]', 'attribute' => 'content'],
+            'current_value' => 'Social title',
+        ]));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertFalse(metadata_exists('post', $this->pageId, '_yoast_wpseo_opengraph-title'));
+    }
+
+    public function test_says_a_revert_of_a_tag_yoast_has_no_field_for_cannot_be_cleared(): void
+    {
+        $result = $this->sendOne($this->clearing([
+            'check' => 'open_graph.missing',
+            'target' => ['selector' => 'meta[property="og:image"]', 'attribute' => 'content'],
+            'current_value' => 'https://example.org/a.png',
+        ]));
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('not_clearable', $result['reason']);
+    }
+
+    public function test_clears_a_term_field_on_a_revert_and_keeps_its_others(): void
+    {
+        $term = self::factory()->category->create_and_get(['name' => 'News', 'slug' => 'news']);
+
+        WPSEO_Taxonomy_Meta::set_values($term->term_id, 'category', [
+            'wpseo_desc' => 'How our studio works, and who we build for.',
+            'wpseo_title' => 'Kept title',
+        ]);
+
+        $result = $this->sendOne($this->clearing([
+            'url' => get_term_link($term),
+            'current_value' => 'How our studio works, and who we build for.',
+        ]));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('', WPSEO_Taxonomy_Meta::get_term_meta($term, 'category', 'desc'));
+        $this->assertSame('Kept title', WPSEO_Taxonomy_Meta::get_term_meta($term, 'category', 'title'));
+    }
+
+    public function test_clears_a_post_type_archive_setting_on_a_revert(): void
+    {
+        $this->registerArchive();
+        WPSEO_Options::set('metadesc-ptarchive-new-boat', 'How our studio works, and who we build for.');
+
+        $result = $this->sendOne($this->clearing([
+            'url' => home_url('/new-boat-sales/'),
+            'current_value' => 'How our studio works, and who we build for.',
+        ]));
+
+        $this->unregisterArchive();
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('', WPSEO_Options::get('metadesc-ptarchive-new-boat'));
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function clearing(array $overrides = []): array
+    {
+        return ['suggested_value' => '', 'revert' => true, ...$overrides];
+    }
+
     public function test_restores_a_page_level_pattern_on_a_revert(): void
     {
         $this->storeDescription('%%title%% from us');

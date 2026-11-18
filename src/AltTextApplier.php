@@ -45,7 +45,7 @@ class AltTextApplier implements Applier
     {
         $suggested = trim($change->suggestedValue ?? '');
 
-        if ($suggested === '') {
+        if ($suggested === '' && ! $change->isRevertToEmpty()) {
             return ChangeResult::skipped($change->id, 'no_suggestion', 'There is no alt text to write.');
         }
 
@@ -63,7 +63,7 @@ class AltTextApplier implements Applier
         $post = $this->editablePost($change->url);
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
-            : $this->rewrite($post->post_content, $attachmentId, $source, $current, $suggested);
+            : $this->rewrite($post->post_content, $attachmentId, $source, $current, $this->replacement($change, $suggested));
         $writesLibrary = $stored === $current && $stored !== $suggested;
 
         if (! $writesLibrary && ! $copy['changed']) {
@@ -80,12 +80,8 @@ class AltTextApplier implements Applier
             return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
         }
 
-        if ($writesLibrary && ! update_post_meta($attachmentId, $this->metaKey, wp_slash($suggested))) {
+        if ($writesLibrary && ! $this->writeLibrary($attachmentId, $suggested)) {
             return ChangeResult::failed($change->id, 'write_failed', 'WordPress did not save the alt text in the media library.');
-        }
-
-        if ($writesLibrary) {
-            $this->writtenThisRequest[$attachmentId] = $suggested;
         }
 
         if ($copy['changed'] && ! $this->writer->updatePost($post->ID, ['post_content' => $copy['html']])) {
@@ -93,6 +89,31 @@ class AltTextApplier implements Applier
         }
 
         return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
+    }
+
+    private function writeLibrary(int $attachmentId, string $value): bool
+    {
+        $written = $value === ''
+            ? delete_post_meta($attachmentId, $this->metaKey)
+            : (bool) update_post_meta($attachmentId, $this->metaKey, wp_slash($value));
+
+        if ($written && $value === '') {
+            unset($this->writtenThisRequest[$attachmentId]);
+        } elseif ($written) {
+            $this->writtenThisRequest[$attachmentId] = $value;
+        }
+
+        return $written;
+    }
+
+    /**
+     * Reverting a change that filled an empty alt puts back what was there before. The
+     * request does not say which that was, so the check it was raised for decides:
+     * a missing alt attribute is removed again and an empty one is emptied.
+     */
+    private function replacement(ChangeRequest $change, string $suggested): ?string
+    {
+        return $suggested === '' && $change->check === 'image.alt_missing' ? null : $suggested;
     }
 
     /**
@@ -125,7 +146,7 @@ class AltTextApplier implements Applier
             );
         }
 
-        if ($stored !== '' && trim($change->currentValue ?? '') === '' && $post !== null && ! $this->mentionsImage($post, $attachmentId, $source)) {
+        if ($stored !== '' && $suggested !== '' && trim($change->currentValue ?? '') === '' && $post !== null && ! $this->mentionsImage($post, $attachmentId, $source)) {
             return ChangeResult::skipped(
                 $change->id,
                 'template_omits_alt',
@@ -174,7 +195,15 @@ class AltTextApplier implements Applier
         $post = $source === '' || str_starts_with(strtolower($source), 'data:') ? null : $this->editablePost($change->url);
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
-            : $this->rewrite($post->post_content, 0, $source, trim($change->currentValue ?? ''), $suggested);
+            : $this->rewrite($post->post_content, 0, $source, trim($change->currentValue ?? ''), $this->replacement($change, $suggested));
+
+        if (! $copy['found'] && $suggested === '') {
+            return ChangeResult::skipped(
+                $change->id,
+                'not_clearable',
+                "This image is not in the media library and this page's content has no image tag for it, so its alt text comes from the theme or a page builder and cannot be cleared here.",
+            );
+        }
 
         if (! $copy['found']) {
             return ChangeResult::skipped(
@@ -221,8 +250,9 @@ class AltTextApplier implements Applier
      *
      * @return array{html: string, changed: bool, already: bool, found: bool}
      */
-    private function rewrite(string $html, int $attachmentId, string $source, string $current, string $suggested): array
+    private function rewrite(string $html, int $attachmentId, string $source, string $current, ?string $replacement): array
     {
+        $suggested = $replacement ?? '';
         $tags = new WP_HTML_Tag_Processor($html);
         $sourcePath = $this->path($source);
         $sourceAddress = $this->address($source);
@@ -241,7 +271,12 @@ class AltTextApplier implements Applier
             $already = $already || $alt === $suggested;
 
             if ($alt === $current && $alt !== $suggested) {
-                $tags->set_attribute('alt', $suggested);
+                if ($replacement === null) {
+                    $tags->remove_attribute('alt');
+                } else {
+                    $tags->set_attribute('alt', $suggested);
+                }
+
                 $changed = true;
             }
         }

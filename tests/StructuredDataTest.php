@@ -221,6 +221,14 @@ JSON;
         $this->assertFalse(get_option('altimiser_structured_data_defaults'));
     }
 
+    public function test_says_a_revert_to_empty_does_not_remove_structured_data(): void
+    {
+        $result = $this->sendOne(['check' => 'structured_data.missing', 'suggested_value' => '', 'revert' => true]);
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('not_clearable', $result['reason']);
+    }
+
     public function test_skips_a_change_with_no_markup_or_no_page(): void
     {
         $this->assertSame('no_suggestion', $this->sendOne(['check' => 'structured_data.missing', 'suggested_value' => null])['reason']);

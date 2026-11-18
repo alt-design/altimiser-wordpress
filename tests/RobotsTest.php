@@ -26,6 +26,22 @@ class RobotsTest extends ReceiverTestCase
         parent::tear_down();
     }
 
+    public function test_says_a_revert_to_empty_does_not_change_robots_txt(): void
+    {
+        $change = ChangeRequest::fromPayload($this->change([
+            'check' => 'site.robots_missing',
+            'url' => home_url('/'),
+            'target' => ['selector' => null, 'attribute' => null],
+            'suggested_value' => '',
+            'revert' => true,
+        ]));
+
+        $result = (new RobotsApplier($this->root))->apply($change, false);
+
+        $this->assertSame('not_clearable', $result['reason']);
+        $this->assertFileDoesNotExist("{$this->root}/robots.txt");
+    }
+
     public function test_creates_a_permissive_robots_txt_naming_the_sites_sitemap(): void
     {
         $result = $this->apply('site.robots_missing', null);
