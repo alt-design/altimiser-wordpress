@@ -16,7 +16,7 @@ class Integrations
     private array $known = [
         'wp_rocket' => ['constant' => 'WP_ROCKET_VERSION', 'files' => ['wp-rocket/wp-rocket.php']],
         'litespeed_cache' => ['constant' => 'LSCWP_V', 'files' => ['litespeed-cache/litespeed-cache.php']],
-        'hummingbird' => ['constant' => 'WPHB_VERSION', 'files' => ['hummingbird-performance/wp-hummingbird.php']],
+        'hummingbird' => ['constant' => 'WPHB_VERSION', 'files' => ['hummingbird-performance/wp-hummingbird.php', 'wp-hummingbird/wp-hummingbird.php']],
         'w3_total_cache' => ['constant' => 'W3TC_VERSION', 'files' => ['w3-total-cache/w3-total-cache.php']],
         'wp_super_cache' => ['constant' => '', 'files' => ['wp-super-cache/wp-cache.php']],
         'breeze' => ['constant' => 'BREEZE_VERSION', 'files' => ['breeze/breeze.php']],

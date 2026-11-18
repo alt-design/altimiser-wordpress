@@ -21,6 +21,14 @@ class AltTextApplier implements Applier
      */
     private array $writtenThisRequest = [];
 
+    /**
+     * What a dry run would have written, kept apart so that a later dry run previews
+     * what a real one would do without being taken for a write.
+     *
+     * @var array<int, string>
+     */
+    private array $intendedThisRequest = [];
+
     public function __construct(private ContentResolver $content, private ContentWriter $writer) {}
 
     public function checks(): array
@@ -49,7 +57,9 @@ class AltTextApplier implements Applier
         }
 
         $current = trim($change->currentValue ?? '');
-        $stored = trim((string) get_post_meta($attachmentId, $this->metaKey, true));
+        $stored = $dryRun && isset($this->intendedThisRequest[$attachmentId])
+            ? $this->intendedThisRequest[$attachmentId]
+            : trim((string) get_post_meta($attachmentId, $this->metaKey, true));
         $post = $this->editablePost($change->url);
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
@@ -57,12 +67,16 @@ class AltTextApplier implements Applier
         $writesLibrary = $stored === $current && $stored !== $suggested;
 
         if (! $writesLibrary && ! $copy['changed']) {
-            return $this->unchangeable($change, $attachmentId, $stored, $suggested, $copy);
+            return $this->unchangeable($change, $attachmentId, $stored, $suggested, $copy, $dryRun, $post, $source);
         }
 
         $location = $this->location($attachmentId, $writesLibrary, $copy['changed'] ? $post : null);
 
         if ($dryRun) {
+            if ($writesLibrary) {
+                $this->intendedThisRequest[$attachmentId] = $suggested;
+            }
+
             return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
         }
 
@@ -79,15 +93,17 @@ class AltTextApplier implements Applier
 
     private function writeLibrary(int $attachmentId, string $value): bool
     {
-        if ($value === '') {
-            unset($this->writtenThisRequest[$attachmentId]);
+        $written = $value === ''
+            ? delete_post_meta($attachmentId, $this->metaKey)
+            : (bool) update_post_meta($attachmentId, $this->metaKey, wp_slash($value));
 
-            return delete_post_meta($attachmentId, $this->metaKey);
+        if ($written && $value === '') {
+            unset($this->writtenThisRequest[$attachmentId]);
+        } elseif ($written) {
+            $this->writtenThisRequest[$attachmentId] = $value;
         }
 
-        $this->writtenThisRequest[$attachmentId] = $value;
-
-        return (bool) update_post_meta($attachmentId, $this->metaKey, wp_slash($value));
+        return $written;
     }
 
     /**
@@ -109,9 +125,10 @@ class AltTextApplier implements Applier
      * @param  array{html: string, changed: bool, already: bool, found: bool}  $copy
      * @return array<string, mixed>
      */
-    private function unchangeable(ChangeRequest $change, int $attachmentId, string $stored, string $suggested, array $copy): array
+    private function unchangeable(ChangeRequest $change, int $attachmentId, string $stored, string $suggested, array $copy, bool $dryRun, ?WP_Post $post, string $source): array
     {
-        $writtenHere = $stored !== '' && ($this->writtenThisRequest[$attachmentId] ?? null) === $stored;
+        $earlier = $dryRun ? $this->intendedThisRequest : $this->writtenThisRequest;
+        $writtenHere = $stored !== '' && ($earlier[$attachmentId] ?? null) === $stored;
 
         if ($stored === $suggested || $copy['already']) {
             return ChangeResult::alreadyApplied(
@@ -129,7 +146,7 @@ class AltTextApplier implements Applier
             );
         }
 
-        if ($stored !== '' && $suggested !== '' && trim($change->currentValue ?? '') === '' && ! $copy['found']) {
+        if ($stored !== '' && $suggested !== '' && trim($change->currentValue ?? '') === '' && $post !== null && ! $this->mentionsImage($post, $attachmentId, $source)) {
             return ChangeResult::skipped(
                 $change->id,
                 'template_omits_alt',
@@ -145,6 +162,29 @@ class AltTextApplier implements Applier
     }
 
     /**
+     * Whether the page's content has a tag for the image at all, in any size, so that
+     * a page printing a resized copy is not blamed on its template.
+     */
+    private function mentionsImage(WP_Post $post, int $attachmentId, string $source): bool
+    {
+        $tags = new WP_HTML_Tag_Processor($post->post_content);
+        $unsized = $this->withoutSize($this->path($source));
+
+        while ($tags->next_tag('img')) {
+            if ($tags->has_class("wp-image-{$attachmentId}") || $this->withoutSize($this->path((string) $tags->get_attribute('src'))) === $unsized) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function withoutSize(string $path): string
+    {
+        return (string) preg_replace('/-(?:\d+x\d+|scaled)(?=\.\w+$)/', '', $path);
+    }
+
+    /**
      * An image that is not in the media library, such as one copied in from another
      * site, has only the tag in the page to write to.
      *
@@ -152,7 +192,7 @@ class AltTextApplier implements Applier
      */
     private function applyToContentOnly(ChangeRequest $change, string $source, string $suggested, bool $dryRun): array
     {
-        $post = $this->editablePost($change->url);
+        $post = $source === '' || str_starts_with(strtolower($source), 'data:') ? null : $this->editablePost($change->url);
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
             : $this->rewrite($post->post_content, 0, $source, trim($change->currentValue ?? ''), $this->replacement($change, $suggested));
@@ -215,12 +255,13 @@ class AltTextApplier implements Applier
         $suggested = $replacement ?? '';
         $tags = new WP_HTML_Tag_Processor($html);
         $sourcePath = $this->path($source);
+        $sourceAddress = $this->address($source);
         $changed = false;
         $already = false;
         $found = false;
 
         while ($tags->next_tag('img')) {
-            if (! $tags->has_class("wp-image-{$attachmentId}") && $this->path((string) $tags->get_attribute('src')) !== $sourcePath) {
+            if (! $this->showsImage($tags->has_class("wp-image-{$attachmentId}"), (string) $tags->get_attribute('src'), $attachmentId, $sourcePath, $sourceAddress)) {
                 continue;
             }
 
@@ -242,10 +283,10 @@ class AltTextApplier implements Applier
 
         $html = preg_replace_callback(
             '/<!--\s+wp:cover\s+(\{.*?\})\s+(\/?)-->/s',
-            function (array $comment) use ($attachmentId, $sourcePath, $current, $suggested, &$changed): string {
+            function (array $comment) use ($attachmentId, $sourceAddress, $current, $suggested, &$changed): string {
                 $attributes = json_decode($comment[1], true);
 
-                if (! is_array($attributes) || ! $this->coverShows($attributes, $attachmentId, $sourcePath) || trim((string) ($attributes['alt'] ?? '')) !== $current || $current === $suggested) {
+                if (! is_array($attributes) || ! $this->coverShows($attributes, $attachmentId, $sourceAddress) || trim((string) ($attributes['alt'] ?? '')) !== $current || $current === $suggested) {
                     return $comment[0];
                 }
 
@@ -261,15 +302,32 @@ class AltTextApplier implements Applier
     }
 
     /**
-     * @param  array<string, mixed>  $attributes
+     * An image in the media library is recognised by its class or by where its file is,
+     * whatever host serves it. One that is not in the library has nothing but its
+     * address, so the host and the query count as well, and an image with no address
+     * is never taken for it.
      */
-    private function coverShows(array $attributes, int $attachmentId, string $sourcePath): bool
+    private function showsImage(bool $hasClass, string $src, int $attachmentId, string $sourcePath, string $sourceAddress): bool
     {
-        if ($attachmentId !== 0 && ($attributes['id'] ?? null) === $attachmentId) {
-            return true;
+        if ($attachmentId !== 0) {
+            return $hasClass || $this->path($src) === $sourcePath;
         }
 
-        return $attachmentId === 0 && $this->path((string) ($attributes['url'] ?? '')) === $sourcePath;
+        return $src !== '' && $this->address($src) === $sourceAddress;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function coverShows(array $attributes, int $attachmentId, string $sourceAddress): bool
+    {
+        if ($attachmentId !== 0) {
+            return ($attributes['id'] ?? null) === $attachmentId;
+        }
+
+        $url = (string) ($attributes['url'] ?? '');
+
+        return $url !== '' && $this->address($url) === $sourceAddress;
     }
 
     /**
@@ -308,6 +366,18 @@ class AltTextApplier implements Applier
     private function path(string $url): string
     {
         return rawurldecode((string) parse_url($url, PHP_URL_PATH));
+    }
+
+    /**
+     * An address without a host is on this site, and a leading www. does not make it
+     * another one.
+     */
+    private function address(string $url): string
+    {
+        $host = (string) (parse_url($url, PHP_URL_HOST) ?: parse_url(home_url(), PHP_URL_HOST));
+        $host = (string) preg_replace('/^www\./', '', strtolower($host));
+
+        return $host.'|'.$this->path($url).'?'.parse_url($url, PHP_URL_QUERY);
     }
 
     /**
