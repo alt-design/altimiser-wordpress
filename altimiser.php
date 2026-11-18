@@ -4,7 +4,7 @@
  * Plugin Name: Altimiser
  * Plugin URI: https://github.com/alt-design/altimiser-wordpress
  * Description: Applies Altimiser's approved changes to this site.
- * Version: 0.2.0
+ * Version: 0.3.0
  * Requires at least: 6.8
  * Requires PHP: 8.1
  * Author: Alt Design
