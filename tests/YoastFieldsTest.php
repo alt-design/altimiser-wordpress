@@ -377,6 +377,18 @@ class YoastFieldsTest extends ReceiverTestCase
         $this->assertFalse(metadata_exists('post', $this->pageId, '_yoast_wpseo_opengraph-title'));
     }
 
+    public function test_says_a_revert_of_a_tag_yoast_has_no_field_for_cannot_be_cleared(): void
+    {
+        $result = $this->sendOne($this->clearing([
+            'check' => 'open_graph.missing',
+            'target' => ['selector' => 'meta[property="og:image"]', 'attribute' => 'content'],
+            'current_value' => 'https://example.org/a.png',
+        ]));
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('not_clearable', $result['reason']);
+    }
+
     public function test_clears_a_term_field_on_a_revert_and_keeps_its_others(): void
     {
         $term = self::factory()->category->create_and_get(['name' => 'News', 'slug' => 'news']);

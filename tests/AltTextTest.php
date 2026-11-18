@@ -345,6 +345,17 @@ class AltTextTest extends ReceiverTestCase
         $this->assertStringNotContainsString('alt=', get_post($this->pageId)->post_content);
     }
 
+    public function test_says_a_revert_for_a_theme_image_cannot_be_cleared(): void
+    {
+        $result = $this->sendAlt($this->clearing([
+            'target' => $this->target(home_url('/wp-content/themes/harbour/logo.png')),
+            'current_value' => 'Harbour logo',
+        ]));
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('not_clearable', $result['reason']);
+    }
+
     public function test_clears_nothing_on_a_dry_run_revert(): void
     {
         $this->sendAlt();

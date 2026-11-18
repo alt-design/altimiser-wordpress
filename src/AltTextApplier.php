@@ -157,6 +157,14 @@ class AltTextApplier implements Applier
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
             : $this->rewrite($post->post_content, 0, $source, trim($change->currentValue ?? ''), $this->replacement($change, $suggested));
 
+        if (! $copy['found'] && $suggested === '') {
+            return ChangeResult::skipped(
+                $change->id,
+                'not_clearable',
+                "This image is not in the media library and this page's content has no image tag for it, so its alt text comes from the theme or a page builder and cannot be cleared here.",
+            );
+        }
+
         if (! $copy['found']) {
             return ChangeResult::skipped(
                 $change->id,

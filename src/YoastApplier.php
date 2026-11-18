@@ -46,7 +46,9 @@ class YoastApplier implements Applier
         $field = $this->field($change);
 
         if ($field === null) {
-            return ChangeResult::skipped($change->id, 'no_field', $this->noFieldMessage($change));
+            return $change->revert && trim($change->suggestedValue ?? '') === ''
+                ? ChangeResult::skipped($change->id, 'not_clearable', 'Yoast has no field of its own for this tag, so there is nothing here to clear.')
+                : ChangeResult::skipped($change->id, 'no_field', $this->noFieldMessage($change));
         }
 
         $record = $this->content->find($change->url) ?? $this->content->findArchive($change->url);
