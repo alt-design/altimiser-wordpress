@@ -46,7 +46,7 @@ class YoastApplier implements Applier
         $field = $this->field($change);
 
         if ($field === null) {
-            return ChangeResult::skipped($change->id, 'no_field', "Yoast has no text field for {$change->check} on this tag.");
+            return ChangeResult::skipped($change->id, 'no_field', $this->noFieldMessage($change));
         }
 
         $record = $this->content->find($change->url) ?? $this->content->findArchive($change->url);
@@ -151,6 +151,15 @@ class YoastApplier implements Applier
             'meta_description' => 'metadesc',
             default => $this->socialField((string) ($change->target['selector'] ?? '')),
         };
+    }
+
+    private function noFieldMessage(ChangeRequest $change): string
+    {
+        $selector = (string) ($change->target['selector'] ?? '');
+
+        return preg_match('/og:[a-z_:]+/', $selector, $tag) === 1
+            ? "Yoast has no text field for the {$tag[0]} meta tag, so it has to be chosen by a person in the page's social settings."
+            : "Yoast has no text field that {$change->check} could be written to.";
     }
 
     private function socialField(string $selector): ?string

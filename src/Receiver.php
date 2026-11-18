@@ -104,7 +104,7 @@ class Receiver
             'cms_version' => get_bloginfo('version'),
             'capabilities' => $this->capabilities($checks),
             'checks' => $checks,
-            'integrations' => ['yoast' => $this->yoastState()],
+            'integrations' => ['yoast' => $this->yoastState(), ...$this->orEmpty(fn (): array => (new Integrations())->active())],
             'collections' => $this->orEmpty(fn (): array => (new Collections())->all()),
             'globals' => $this->orEmpty(fn (): array => (new Globals())->all()),
             'variables' => (new PostVariables($this->yoast))->descriptions(),

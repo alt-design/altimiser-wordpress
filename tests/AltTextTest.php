@@ -224,6 +224,109 @@ class AltTextTest extends ReceiverTestCase
         $this->assertSame('Boats moored in the harbour at dusk', parse_blocks(get_post($this->pageId)->post_content)[0]['attrs']['alt']);
     }
 
+    public function test_says_a_later_change_in_the_batch_was_already_applied_by_the_first(): void
+    {
+        $other = $this->secondPage();
+
+        $results = $this->send([
+            $this->altChange(['id' => 'first']),
+            $this->altChange(['id' => 'second', 'url' => get_permalink($other)]),
+        ]);
+
+        $this->assertSame('applied', $results[0]['status']);
+        $this->assertSame('already_applied', $results[1]['status']);
+        $this->assertStringContainsString('in this batch', $results[1]['message']);
+    }
+
+    public function test_says_a_later_change_with_other_wording_was_overtaken_by_the_first_in_the_batch(): void
+    {
+        $other = $this->secondPage();
+
+        $results = $this->send([
+            $this->altChange(['id' => 'first']),
+            $this->altChange(['id' => 'second', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
+        ]);
+
+        $this->assertSame('skipped', $results[1]['status']);
+        $this->assertSame('applied_by_other_change', $results[1]['reason']);
+        $this->assertStringNotContainsString('somebody has changed', $results[1]['message']);
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_still_calls_a_value_from_an_earlier_request_somebody_elses_change(): void
+    {
+        $other = $this->secondPage();
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+
+        $result = $this->sendAlt(['url' => get_permalink($other), 'current_value' => 'Old wording']);
+
+        $this->assertSame('value_changed', $result['reason']);
+    }
+
+    public function test_says_the_template_leaves_out_alt_text_the_media_library_holds(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        $this->setContent('<p>No image tag for it here.</p>');
+
+        $result = $this->sendAlt();
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('template_omits_alt', $result['reason']);
+        $this->assertStringContainsString('template', $result['message']);
+        $this->assertStringNotContainsString('somebody has changed', $result['message']);
+    }
+
+    public function test_previews_a_later_change_in_a_dry_run_as_a_real_run_would_answer_it(): void
+    {
+        $other = $this->secondPage();
+        $changes = [
+            $this->altChange(['id' => 'first']),
+            $this->altChange(['id' => 'second', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
+        ];
+
+        $results = $this->send($changes, true);
+
+        $this->assertSame('applied', $results[0]['status']);
+        $this->assertSame('applied_by_other_change', $results[1]['reason']);
+        $this->assertSame('', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_does_not_blame_the_template_on_a_page_built_with_elementor(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        update_post_meta($this->pageId, '_elementor_edit_mode', 'builder');
+
+        $this->assertSame('value_changed', $this->sendAlt()['reason']);
+    }
+
+    public function test_does_not_blame_the_template_for_an_address_that_resolves_to_no_post(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+
+        $result = $this->sendAlt(['url' => home_url('/no-such-page/')]);
+
+        $this->assertSame('value_changed', $result['reason']);
+    }
+
+    public function test_does_not_blame_the_template_when_the_page_prints_another_size_of_the_image(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+        $this->setContent("<p><img src=\"{$this->uploads}/2026/11/harbour-768x512.jpg\" alt=\"The harbour in winter\"></p>");
+
+        $result = $this->sendAlt(['target' => $this->target("{$this->uploads}/2026/11/harbour-300x200.jpg")]);
+
+        $this->assertSame('value_changed', $result['reason']);
+    }
+
+    private function secondPage(): int
+    {
+        return self::factory()->post->create([
+            'post_type' => 'page',
+            'post_name' => 'berths',
+            'post_content' => '<p>Berths.</p>',
+        ]);
+    }
+
     public function test_writes_to_no_image_when_the_scan_gave_no_address_for_it(): void
     {
         $this->setContent('<p><img alt="" class="a"><img src="" alt=""><img src="https://other-site.example.net/a.jpg" alt=""></p>');

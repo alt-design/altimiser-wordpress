@@ -16,6 +16,19 @@ class AltTextApplier implements Applier
 {
     private string $metaKey = '_wp_attachment_image_alt';
 
+    /**
+     * @var array<int, string>
+     */
+    private array $writtenThisRequest = [];
+
+    /**
+     * What a dry run would have written, kept apart so that a later dry run previews
+     * what a real one would do without being taken for a write.
+     *
+     * @var array<int, string>
+     */
+    private array $intendedThisRequest = [];
+
     public function __construct(private ContentResolver $content, private ContentWriter $writer) {}
 
     public function checks(): array
@@ -44,7 +57,9 @@ class AltTextApplier implements Applier
         }
 
         $current = trim($change->currentValue ?? '');
-        $stored = trim((string) get_post_meta($attachmentId, $this->metaKey, true));
+        $stored = $dryRun && isset($this->intendedThisRequest[$attachmentId])
+            ? $this->intendedThisRequest[$attachmentId]
+            : trim((string) get_post_meta($attachmentId, $this->metaKey, true));
         $post = $this->editablePost($change->url);
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
@@ -52,18 +67,16 @@ class AltTextApplier implements Applier
         $writesLibrary = $stored === $current && $stored !== $suggested;
 
         if (! $writesLibrary && ! $copy['changed']) {
-            return $stored === $suggested || $copy['already']
-                ? ChangeResult::alreadyApplied($change->id, $this->libraryLocation($attachmentId), 'This image already has this alt text.')
-                : ChangeResult::skipped(
-                    $change->id,
-                    'value_changed',
-                    "Neither the media library nor this page's copy of the image holds the alt text the scan saw, so somebody has changed it since.",
-                );
+            return $this->unchangeable($change, $attachmentId, $stored, $suggested, $copy, $dryRun, $post, $source);
         }
 
         $location = $this->location($attachmentId, $writesLibrary, $copy['changed'] ? $post : null);
 
         if ($dryRun) {
+            if ($writesLibrary) {
+                $this->intendedThisRequest[$attachmentId] = $suggested;
+            }
+
             return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
         }
 
@@ -71,11 +84,83 @@ class AltTextApplier implements Applier
             return ChangeResult::failed($change->id, 'write_failed', 'WordPress did not save the alt text in the media library.');
         }
 
+        if ($writesLibrary) {
+            $this->writtenThisRequest[$attachmentId] = $suggested;
+        }
+
         if ($copy['changed'] && ! $this->writer->updatePost($post->ID, ['post_content' => $copy['html']])) {
             return ChangeResult::failed($change->id, 'write_failed', "WordPress did not save this page's copy of the image's alt text.");
         }
 
         return ChangeResult::applied($change->id, $location, $change->currentValue, $suggested);
+    }
+
+    /**
+     * Says why nothing could be written. One image on several pages is raised once
+     * per page, so the library may hold the wording an earlier change in this batch
+     * wrote, and a page whose template leaves out the library's alt text has no copy
+     * of its own to write to.
+     *
+     * @param  array{html: string, changed: bool, already: bool, found: bool}  $copy
+     * @return array<string, mixed>
+     */
+    private function unchangeable(ChangeRequest $change, int $attachmentId, string $stored, string $suggested, array $copy, bool $dryRun, ?WP_Post $post, string $source): array
+    {
+        $earlier = $dryRun ? $this->intendedThisRequest : $this->writtenThisRequest;
+        $writtenHere = $stored !== '' && ($earlier[$attachmentId] ?? null) === $stored;
+
+        if ($stored === $suggested || $copy['already']) {
+            return ChangeResult::alreadyApplied(
+                $change->id,
+                $this->libraryLocation($attachmentId),
+                $writtenHere ? 'Another change in this batch has already written this alt text for the image.' : 'This image already has this alt text.',
+            );
+        }
+
+        if ($writtenHere) {
+            return ChangeResult::skipped(
+                $change->id,
+                'applied_by_other_change',
+                'Another change in this batch has already written different alt text for this image in the media library, which every page that prints it now shows.',
+            );
+        }
+
+        if ($stored !== '' && trim($change->currentValue ?? '') === '' && $post !== null && ! $this->mentionsImage($post, $attachmentId, $source)) {
+            return ChangeResult::skipped(
+                $change->id,
+                'template_omits_alt',
+                'The media library already holds alt text for this image, but this page does not print it, so its template leaves the alt text out. This needs a template fix and not a change to the alt text.',
+            );
+        }
+
+        return ChangeResult::skipped(
+            $change->id,
+            'value_changed',
+            "Neither the media library nor this page's copy of the image holds the alt text the scan saw, so somebody has changed it since.",
+        );
+    }
+
+    /**
+     * Whether the page's content has a tag for the image at all, in any size, so that
+     * a page printing a resized copy is not blamed on its template.
+     */
+    private function mentionsImage(WP_Post $post, int $attachmentId, string $source): bool
+    {
+        $tags = new WP_HTML_Tag_Processor($post->post_content);
+        $unsized = $this->withoutSize($this->path($source));
+
+        while ($tags->next_tag('img')) {
+            if ($tags->has_class("wp-image-{$attachmentId}") || $this->withoutSize($this->path((string) $tags->get_attribute('src'))) === $unsized) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function withoutSize(string $path): string
+    {
+        return (string) preg_replace('/-(?:\d+x\d+|scaled)(?=\.\w+$)/', '', $path);
     }
 
     /**
