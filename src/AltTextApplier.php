@@ -17,13 +17,8 @@ class AltTextApplier implements Applier
     private string $metaKey = '_wp_attachment_image_alt';
 
     /**
-     * @var array<int, string>
-     */
-    private array $writtenThisRequest = [];
-
-    /**
-     * What a dry run would have written, kept apart so that a later dry run previews
-     * what a real one would do without being taken for a write.
+     * What a dry run would have written, kept apart so that a later change in it is
+     * previewed as a real run would answer it without being taken for a write.
      *
      * @var array<int, string>
      */
@@ -61,6 +56,15 @@ class AltTextApplier implements Applier
             ? $this->intendedThisRequest[$attachmentId]
             : trim((string) get_post_meta($attachmentId, $this->metaKey, true));
         $post = $this->editablePost($change->url);
+
+        if ($change->check === 'image.alt_missing' && $current === '' && $post !== null && ! $this->mentionsImage($post, $attachmentId, $source)) {
+            return ChangeResult::skipped(
+                $change->id,
+                'template_omits_alt',
+                "This page prints the image with no alt attribute, and its own content has no tag for the image, so the tag comes from a template or a block that leaves the attribute out. This needs a template fix and not a change to the alt text.",
+            );
+        }
+
         $copy = $post === null
             ? ['html' => '', 'changed' => false, 'already' => false, 'found' => false]
             : $this->rewrite($post->post_content, $attachmentId, $source, $current, $this->replacement($change, $suggested));
@@ -97,13 +101,16 @@ class AltTextApplier implements Applier
             ? delete_post_meta($attachmentId, $this->metaKey)
             : (bool) update_post_meta($attachmentId, $this->metaKey, wp_slash($value));
 
-        if ($written && $value === '') {
-            unset($this->writtenThisRequest[$attachmentId]);
-        } elseif ($written) {
-            $this->writtenThisRequest[$attachmentId] = $value;
+        if ($written) {
+            set_transient($this->writtenKey($attachmentId), $value, HOUR_IN_SECONDS);
         }
 
         return $written;
+    }
+
+    private function writtenKey(int $attachmentId): string
+    {
+        return "altimiser_alt_written_{$attachmentId}";
     }
 
     /**
@@ -118,31 +125,33 @@ class AltTextApplier implements Applier
 
     /**
      * Says why nothing could be written. One image on several pages is raised once
-     * per page, so the library may hold the wording an earlier change in this batch
-     * wrote, and a page whose template leaves out the library's alt text has no copy
-     * of its own to write to.
+     * per page, so the library may hold the wording an earlier change wrote, often in
+     * another request because a batch takes several. A page whose template leaves out
+     * the library's alt text has no copy of its own to write to.
      *
      * @param  array{html: string, changed: bool, already: bool, found: bool}  $copy
      * @return array<string, mixed>
      */
     private function unchangeable(ChangeRequest $change, int $attachmentId, string $stored, string $suggested, array $copy, bool $dryRun, ?WP_Post $post, string $source): array
     {
-        $earlier = $dryRun ? $this->intendedThisRequest : $this->writtenThisRequest;
-        $writtenHere = $stored !== '' && ($earlier[$attachmentId] ?? null) === $stored;
+        $earlier = $dryRun && isset($this->intendedThisRequest[$attachmentId])
+            ? $this->intendedThisRequest[$attachmentId]
+            : get_transient($this->writtenKey($attachmentId));
+        $writtenRecently = $stored !== '' && $earlier === $stored;
 
         if ($stored === $suggested || $copy['already']) {
             return ChangeResult::alreadyApplied(
                 $change->id,
                 $this->libraryLocation($attachmentId),
-                $writtenHere ? 'Another change in this batch has already written this alt text for the image.' : 'This image already has this alt text.',
+                $writtenRecently ? 'Altimiser has already written this alt text for the image.' : 'This image already has this alt text.',
             );
         }
 
-        if ($writtenHere) {
+        if ($writtenRecently) {
             return ChangeResult::skipped(
                 $change->id,
                 'applied_by_other_change',
-                'Another change in this batch has already written different alt text for this image in the media library, which every page that prints it now shows.',
+                'Another change has already written different alt text for this image in the media library, which every page that prints it now shows.',
             );
         }
 
