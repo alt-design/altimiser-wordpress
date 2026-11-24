@@ -58,7 +58,7 @@ class AltTextTest extends ReceiverTestCase
     {
         $scaledId = $this->image('2026/11/estuary-scaled.jpg');
 
-        $result = $this->sendAlt(['target' => $this->target("{$this->uploads}/2026/11/estuary-1024x683.jpg")]);
+        $result = $this->sendAlt(['check' => 'image.alt_empty', 'target' => $this->target("{$this->uploads}/2026/11/estuary-1024x683.jpg")]);
 
         $this->assertSame('applied', $result['status']);
         $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($scaledId, '_wp_attachment_image_alt', true));
@@ -230,12 +230,12 @@ class AltTextTest extends ReceiverTestCase
 
         $results = $this->send([
             $this->altChange(['id' => 'first']),
-            $this->altChange(['id' => 'second', 'url' => get_permalink($other)]),
+            $this->altChange(['id' => 'second', 'check' => 'image.alt_empty', 'url' => get_permalink($other)]),
         ]);
 
         $this->assertSame('applied', $results[0]['status']);
         $this->assertSame('already_applied', $results[1]['status']);
-        $this->assertStringContainsString('in this batch', $results[1]['message']);
+        $this->assertStringContainsString('Altimiser has already written', $results[1]['message']);
     }
 
     public function test_says_a_later_change_with_other_wording_was_overtaken_by_the_first_in_the_batch(): void
@@ -244,7 +244,7 @@ class AltTextTest extends ReceiverTestCase
 
         $results = $this->send([
             $this->altChange(['id' => 'first']),
-            $this->altChange(['id' => 'second', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
+            $this->altChange(['id' => 'second', 'check' => 'image.alt_empty', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
         ]);
 
         $this->assertSame('skipped', $results[1]['status']);
@@ -268,7 +268,7 @@ class AltTextTest extends ReceiverTestCase
         update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
         $this->setContent('<p>No image tag for it here.</p>');
 
-        $result = $this->sendAlt();
+        $result = $this->sendAlt(['check' => 'image.alt_empty']);
 
         $this->assertSame('skipped', $result['status']);
         $this->assertSame('template_omits_alt', $result['reason']);
@@ -276,12 +276,105 @@ class AltTextTest extends ReceiverTestCase
         $this->assertStringNotContainsString('somebody has changed', $result['message']);
     }
 
+    /**
+     * @dataProvider dryRuns
+     */
+    public function test_writes_nothing_for_a_missing_attribute_the_pages_content_does_not_hold(bool $dryRun): void
+    {
+        $this->setContent('<p>No image tag for it here.</p>');
+
+        $result = $this->send([$this->altChange()], $dryRun)[0];
+
+        $this->assertSame('skipped', $result['status']);
+        $this->assertSame('template_omits_alt', $result['reason']);
+        $this->assertStringContainsString('no alt attribute', $result['message']);
+        $this->assertFalse(metadata_exists('post', $this->imageId, '_wp_attachment_image_alt'));
+    }
+
+    /**
+     * @return array<string, array{bool}>
+     */
+    public static function dryRuns(): array
+    {
+        return ['for real' => [false], 'on a dry run' => [true]];
+    }
+
+    public function test_does_not_call_a_missing_attribute_done_when_the_media_library_holds_the_wording(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'Boats moored in the harbour at dusk');
+        $this->setContent('<p>No image tag for it here.</p>');
+
+        $this->assertSame('template_omits_alt', $this->sendAlt()['reason']);
+    }
+
+    public function test_fills_an_empty_attribute_the_template_prints(): void
+    {
+        $this->setContent('<p>No image tag for it here.</p>');
+
+        $result = $this->sendAlt(['check' => 'image.alt_empty']);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_fills_a_missing_attribute_in_the_library_for_an_address_that_resolves_to_no_post(): void
+    {
+        $result = $this->sendAlt(['url' => home_url('/no-such-page/')]);
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_reverts_a_missing_attribute_filled_in_the_library_alone(): void
+    {
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'Boats moored in the harbour at dusk');
+        $this->setContent('<p>No image tag for it here.</p>');
+
+        $result = $this->sendAlt($this->clearing(['current_value' => 'Boats moored in the harbour at dusk']));
+
+        $this->assertSame('applied', $result['status']);
+        $this->assertFalse(metadata_exists('post', $this->imageId, '_wp_attachment_image_alt'));
+    }
+
+    public function test_says_a_change_in_an_earlier_request_already_wrote_the_same_wording(): void
+    {
+        $this->sendAlt(['check' => 'image.alt_empty']);
+
+        $result = $this->sendAlt(['check' => 'image.alt_empty', 'url' => get_permalink($this->secondPage())]);
+
+        $this->assertSame('already_applied', $result['status']);
+        $this->assertStringContainsString('Altimiser has already written', $result['message']);
+    }
+
+    /**
+     * @dataProvider dryRuns
+     */
+    public function test_says_a_change_in_an_earlier_request_wrote_other_wording(bool $dryRun): void
+    {
+        $this->sendAlt(['check' => 'image.alt_empty']);
+
+        $result = $this->send([$this->altChange(['check' => 'image.alt_empty', 'url' => get_permalink($this->secondPage()), 'suggested_value' => 'Moorings at low tide'])], $dryRun)[0];
+
+        $this->assertSame('applied_by_other_change', $result['reason']);
+        $this->assertSame('Boats moored in the harbour at dusk', get_post_meta($this->imageId, '_wp_attachment_image_alt', true));
+    }
+
+    public function test_does_not_credit_an_earlier_request_with_an_editors_wording(): void
+    {
+        $this->sendAlt(['check' => 'image.alt_empty']);
+        update_post_meta($this->imageId, '_wp_attachment_image_alt', 'The harbour');
+
+        $result = $this->sendAlt(['check' => 'image.alt_empty', 'url' => get_permalink($this->secondPage()), 'suggested_value' => 'Moorings at low tide']);
+
+        $this->assertSame('template_omits_alt', $result['reason']);
+    }
+
     public function test_previews_a_later_change_in_a_dry_run_as_a_real_run_would_answer_it(): void
     {
         $other = $this->secondPage();
         $changes = [
             $this->altChange(['id' => 'first']),
-            $this->altChange(['id' => 'second', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
+            $this->altChange(['id' => 'second', 'check' => 'image.alt_empty', 'url' => get_permalink($other), 'suggested_value' => 'Moorings at low tide']),
         ];
 
         $results = $this->send($changes, true);

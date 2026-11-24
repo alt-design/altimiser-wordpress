@@ -79,6 +79,10 @@ WordPress keeps alt text in two places. The media library holds the image's own,
 
 The image is found from the address the scan saw, which may be a resized copy, on a CDN, or of an image WordPress scaled down on upload. An image that is not in the media library, such as one in the theme, is refused as `no_match`.
 
+Where a page prints an image with no alt attribute and its own content has no tag for the image, the tag comes from a template or a block that leaves the attribute out. Most of those would not show the media library's alt text either, so nothing is written, and the change is refused as `template_omits_alt`. Pages made with a page builder, and addresses that are not a single post, are not judged that way, because the plugin cannot see where they get their images.
+
+One image on several pages is raised once for each, and the media library holds one alt text for all of them. The first change sent writes it, and for an hour after that a later one with other wording is refused as `applied_by_other_change`.
+
 ### Links
 
 The plugin turns the first mention of another page's heading into a link to it, adding no words. It reads the page's content first, then any ACF editor fields, including those inside groups, repeaters and flexible content. ACF text areas are left alone, because themes commonly escape them and the link would show as markup. Only a path on this site or an address on its own host is linked to. A mention inside a heading, code, a form control, a summary, an SVG, a script or a shortcode's settings is passed over, and the content is saved without WordPress's filtering of untrusted HTML, so embeds, scripts and forms on the page stay as they were.
